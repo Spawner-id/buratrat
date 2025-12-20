@@ -12,7 +12,7 @@ end
 _G.ProjectStark_Loaded = true
 
 -- ==========================================
--- BLADE BALL AUTO-PARRY - MOBILE MOVEMENT & SLIDER FIX
+-- BLADE BALL AUTO-PARRY - ANTI-KICK & MOBILE FIX
 -- ==========================================
 
 local Neverzen = loadstring(game:HttpGet("https://raw.githubusercontent.com/zxciaz/VenyxUI/main/Reuploaded"))()
@@ -31,29 +31,13 @@ local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
+local GuiService = game:GetService("GuiService")
 
 -- ==========================================
 -- SLIDER FIX (TOUCH MONITOR)
 -- ==========================================
--- This loop checks if you have lifted your fingers. 
--- If no touches are active, it forces a MouseUp event to release sliders.
-task.spawn(function()
-    while true do
-        RunService.Heartbeat:Wait()
-        if UserInputService.TouchEnabled then
-            local touches = UserInputService:GetNavigationGamepads()
-            -- If no fingers are touching the screen (GetNavigationGamepads returns empty for touch on some devices, 
-            -- but specific touch detection is better via UserInputService logic)
-            -- Alternative: simply force release every frame the user isn't dragging explicitly? No.
-            
-            -- Best Fix for Venyx on Mobile:
-            -- Venyx relies on MouseButton1Up. We force it when TouchEnded fires.
-        end
-    end
-end)
-
+-- Forces UI to release sliders when you lift your finger
 UserInputService.TouchEnded:Connect(function()
-    -- Force the UI library to think the mouse was released
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
 end)
 
@@ -106,7 +90,7 @@ local Match = {
             rotation = Vector3.zero,
             position = Vector3.zero,
             last_warping = tick(),
-            parry_remote = nil,
+            -- parry_remote = nil, -- REMOVED TO PREVENT KICKS
             is_curved = false,
             last_tick = tick(),
             auto_spam = false,
@@ -173,62 +157,55 @@ local function LerpRadians(from, to, alpha)
 end
 
 -- ==========================================
--- PARRY REMOTE SETUP
+-- INPUT HANDLER (SAFE & MOBILE FRIENDLY)
 -- ==========================================
 
-function Match.get_parry_remote()
-    local services = {game:GetService("AnimationFromVideoCreatorService"), game:GetService("AdService")}
-    for _, service in services do
-        local remoteEvent = service:FindFirstChildOfClass("RemoteEvent")
-        if remoteEvent and remoteEvent.Name:find("\n") then
-            Match.ball.properties.parry_remote = remoteEvent
-            return
+local function FindMobileButton()
+    -- Attempt to find the mobile block button in PlayerGui
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+    
+    -- Common paths for Blade Ball mobile buttons (Adjust based on game updates)
+    local targets = {
+        "MobileUI", "MobileButtons", "Main/Mobile", "Main/Controls/Mobile"
+    }
+    
+    -- Recursive search for a button named "Block" or containing "Block"
+    for _, v in playerGui:GetDescendants() do
+        if v:IsA("ImageButton") or v:IsA("TextButton") then
+            if v.Name == "Block" or v.Name == "Parry" or v.Name == "BlockButton" then
+                if v.Visible and v.Parent.Visible then
+                    return v
+                end
+            end
         end
     end
+    return nil
 end
 
-Match.get_parry_remote()
-
--- ==========================================
--- INPUT HANDLER (MOVEMENT FIX)
--- ==========================================
-
 local function PerformInput()
-    -- METHOD 1: REMOTE EVENT (Silent, doesn't stop movement)
-    if Match.ball.properties.parry_remote then
-        local camera = workspace.CurrentCamera
-        local ballPos = Match.ball.ball_itself and Match.ball.ball_itself.Position or Vector3.zero
-        
-        -- Default arguments for Blade Ball parry remote
-        -- Arg 1: Time/Float (usually ignored or 0.5)
-        -- Arg 2: CFrame (Camera Look)
-        -- Arg 3: Table {BallName = Position}
-        -- Arg 4: Table {Bool, Bool}
-        
-        Match.ball.properties.parry_remote:FireServer(
-            0.5,
-            CFrame.new(camera.CFrame.Position, ballPos),
-            {[Match.ball.ball_itself.Name] = ballPos},
-            {false, false}
-        )
-    else
-        -- METHOD 2: FALLBACK INPUT (Carefully placed)
-        -- We tap the CENTER of the screen, not (0,0). 
-        -- (0,0) is top-left where the joystick might be.
-        if UserInputService.TouchEnabled then
-            local viewportSize = workspace.CurrentCamera.ViewportSize
-            local centerX = viewportSize.X / 2
-            local centerY = viewportSize.Y / 2
-            
-            VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 0)
-            task.delay(0.05, function()
-                VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 0)
-            end)
-        else
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-        end
+    -- STRATEGY 1: UI SIGNAL FIRE (Best for Mobile - Doesn't stop movement)
+    local mobileBtn = FindMobileButton()
+    if mobileBtn then
+        -- Use firesignal if supported (Synapse/Krnl/Fluxus etc)
+        local success, _ = pcall(function()
+            for _, connection in pairs(getconnections(mobileBtn.MouseButton1Click)) do
+                connection:Fire()
+            end
+            for _, connection in pairs(getconnections(mobileBtn.Activated)) do
+                connection:Fire()
+            end
+        end)
+        if success then return end
     end
+
+    -- STRATEGY 2: KEYBOARD SIMULATION (Safe Fallback)
+    -- Simulating 'F' key is safer than Mouse Click for movement
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+    -- We don't release immediately to ensure the game registers the "press"
+    task.delay(0.05, function()
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+    end)
 end
 
 -- ==========================================
