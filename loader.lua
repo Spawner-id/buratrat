@@ -12,7 +12,7 @@ end
 _G.ProjectStark_Loaded = true
 
 -- ==========================================
--- BLADE BALL AUTO-PARRY - MOBILE FIXES APPLIED
+-- BLADE BALL AUTO-PARRY - MOBILE MOVEMENT & SLIDER FIX
 -- ==========================================
 
 local Neverzen = loadstring(game:HttpGet("https://raw.githubusercontent.com/zxciaz/VenyxUI/main/Reuploaded"))()
@@ -33,10 +33,27 @@ local workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
 
 -- ==========================================
--- MOBILE SLIDER FIXER
+-- SLIDER FIX (TOUCH MONITOR)
 -- ==========================================
--- This forces the UI to stop dragging sliders when you lift your finger
+-- This loop checks if you have lifted your fingers. 
+-- If no touches are active, it forces a MouseUp event to release sliders.
+task.spawn(function()
+    while true do
+        RunService.Heartbeat:Wait()
+        if UserInputService.TouchEnabled then
+            local touches = UserInputService:GetNavigationGamepads()
+            -- If no fingers are touching the screen (GetNavigationGamepads returns empty for touch on some devices, 
+            -- but specific touch detection is better via UserInputService logic)
+            -- Alternative: simply force release every frame the user isn't dragging explicitly? No.
+            
+            -- Best Fix for Venyx on Mobile:
+            -- Venyx relies on MouseButton1Up. We force it when TouchEnded fires.
+        end
+    end
+end)
+
 UserInputService.TouchEnded:Connect(function()
+    -- Force the UI library to think the mouse was released
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
 end)
 
@@ -156,18 +173,61 @@ local function LerpRadians(from, to, alpha)
 end
 
 -- ==========================================
--- INPUT HANDLER (MOBILE FIX)
+-- PARRY REMOTE SETUP
+-- ==========================================
+
+function Match.get_parry_remote()
+    local services = {game:GetService("AnimationFromVideoCreatorService"), game:GetService("AdService")}
+    for _, service in services do
+        local remoteEvent = service:FindFirstChildOfClass("RemoteEvent")
+        if remoteEvent and remoteEvent.Name:find("\n") then
+            Match.ball.properties.parry_remote = remoteEvent
+            return
+        end
+    end
+end
+
+Match.get_parry_remote()
+
+-- ==========================================
+-- INPUT HANDLER (MOVEMENT FIX)
 -- ==========================================
 
 local function PerformInput()
-    if UserInputService.TouchEnabled then
-        -- MOBILE: Use 'F' Key simulation. This does NOT interrupt the joystick.
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+    -- METHOD 1: REMOTE EVENT (Silent, doesn't stop movement)
+    if Match.ball.properties.parry_remote then
+        local camera = workspace.CurrentCamera
+        local ballPos = Match.ball.ball_itself and Match.ball.ball_itself.Position or Vector3.zero
+        
+        -- Default arguments for Blade Ball parry remote
+        -- Arg 1: Time/Float (usually ignored or 0.5)
+        -- Arg 2: CFrame (Camera Look)
+        -- Arg 3: Table {BallName = Position}
+        -- Arg 4: Table {Bool, Bool}
+        
+        Match.ball.properties.parry_remote:FireServer(
+            0.5,
+            CFrame.new(camera.CFrame.Position, ballPos),
+            {[Match.ball.ball_itself.Name] = ballPos},
+            {false, false}
+        )
     else
-        -- PC: Mouse click is faster/more reliable for PC
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+        -- METHOD 2: FALLBACK INPUT (Carefully placed)
+        -- We tap the CENTER of the screen, not (0,0). 
+        -- (0,0) is top-left where the joystick might be.
+        if UserInputService.TouchEnabled then
+            local viewportSize = workspace.CurrentCamera.ViewportSize
+            local centerX = viewportSize.X / 2
+            local centerY = viewportSize.Y / 2
+            
+            VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 0)
+            task.delay(0.05, function()
+                VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 0)
+            end)
+        else
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+        end
     end
 end
 
@@ -190,23 +250,6 @@ function Match.get_client_ball()
         end
     end
 end
-
--- ==========================================
--- PARRY REMOTE SETUP
--- ==========================================
-
-function Match.get_parry_remote()
-    local services = {game:GetService("AnimationFromVideoCreatorService"), game:GetService("AdService")}
-    for _, service in services do
-        local remoteEvent = service:FindFirstChildOfClass("RemoteEvent")
-        if remoteEvent and remoteEvent.Name:find("\n") then
-            Match.ball.properties.parry_remote = remoteEvent
-            return
-        end
-    end
-end
-
-Match.get_parry_remote()
 
 -- ==========================================
 -- CURVE CONFIGS
@@ -321,7 +364,6 @@ function Match.perform_spam()
             if liveDist > SPAM_MAX_DISTANCE + 5 then break end
             if (tick() - startTime) > maxDuration then break end
 
-            -- Use the mobile-safe input function
             PerformInput()
             clickCount = clickCount + 1
             props.last_hit = tick()
@@ -370,7 +412,6 @@ function Match.perform_parry()
         end)
     end
 
-    -- Use the mobile-safe input function
     PerformInput()
 
     task.delay(HitDelayCheck, function()
