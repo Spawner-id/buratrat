@@ -12,7 +12,7 @@ end
 _G.ProjectStark_Loaded = true
 
 -- ==========================================
--- BLADE BALL AUTO-PARRY - ANTI-KICK & MOBILE FIX
+-- BLADE BALL AUTO-PARRY - MOBILE MOVEMENT FIXED
 -- ==========================================
 
 local Neverzen = loadstring(game:HttpGet("https://raw.githubusercontent.com/zxciaz/VenyxUI/main/Reuploaded"))()
@@ -31,12 +31,11 @@ local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
-local GuiService = game:GetService("GuiService")
+local BadgeService = game:GetService("BadgeService")
 
 -- ==========================================
 -- SLIDER FIX (TOUCH MONITOR)
 -- ==========================================
--- Forces UI to release sliders when you lift your finger
 UserInputService.TouchEnded:Connect(function()
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
 end)
@@ -90,7 +89,6 @@ local Match = {
             rotation = Vector3.zero,
             position = Vector3.zero,
             last_warping = tick(),
-            -- parry_remote = nil, -- REMOVED TO PREVENT KICKS
             is_curved = false,
             last_tick = tick(),
             auto_spam = false,
@@ -157,52 +155,69 @@ local function LerpRadians(from, to, alpha)
 end
 
 -- ==========================================
--- INPUT HANDLER (SAFE & MOBILE FRIENDLY)
+-- INPUT HANDLER (MOBILE MOVEMENT FIX)
 -- ==========================================
 
-local function FindMobileButton()
-    -- Attempt to find the mobile block button in PlayerGui
+local function PerformInput()
+    -- STRATEGY 1: FIND THE ACTUAL SCREEN BUTTON
+    -- This is the best method. It taps the button virtually without stopping your joystick.
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not playerGui then return nil end
-    
-    -- Common paths for Blade Ball mobile buttons (Adjust based on game updates)
-    local targets = {
-        "MobileUI", "MobileButtons", "Main/Mobile", "Main/Controls/Mobile"
-    }
-    
-    -- Recursive search for a button named "Block" or containing "Block"
-    for _, v in playerGui:GetDescendants() do
-        if v:IsA("ImageButton") or v:IsA("TextButton") then
-            if v.Name == "Block" or v.Name == "Parry" or v.Name == "BlockButton" then
-                if v.Visible and v.Parent.Visible then
-                    return v
-                end
+    if playerGui then
+        -- Common locations for the block button in Blade Ball
+        local buttonTargets = {
+            playerGui:FindFirstChild("MobileUI") and playerGui.MobileUI:FindFirstChild("Block"),
+            playerGui:FindFirstChild("MobileUI") and playerGui.MobileUI:FindFirstChild("Button"),
+            playerGui:FindFirstChild("Main") and playerGui.Main:FindFirstChild("Mobile") and playerGui.Main.Mobile:FindFirstChild("Block"),
+            playerGui:FindFirstChild("Hotbar") and playerGui.Hotbar:FindFirstChild("Block"),
+        }
+
+        for _, btn in pairs(buttonTargets) do
+            if btn and btn:IsA("GuiButton") and btn.Visible then
+                local pos = btn.AbsolutePosition
+                local size = btn.AbsoluteSize
+                local centerX = pos.X + (size.X / 2)
+                local centerY = pos.Y + (size.Y / 2)
+                
+                -- Send Touch Event (Simulates a finger tap, preserves Joystick)
+                VirtualInputManager:SendTouchEvent(0, 0, centerX, centerY) -- Touch Start
+                VirtualInputManager:SendTouchEvent(0, 1, centerX, centerY) -- Touch End
+                return -- Success
             end
         end
     end
-    return nil
-end
 
-local function PerformInput()
-    -- STRATEGY 1: UI SIGNAL FIRE (Best for Mobile - Doesn't stop movement)
-    local mobileBtn = FindMobileButton()
-    if mobileBtn then
-        -- Use firesignal if supported (Synapse/Krnl/Fluxus etc)
-        local success, _ = pcall(function()
-            for _, connection in pairs(getconnections(mobileBtn.MouseButton1Click)) do
-                connection:Fire()
-            end
-            for _, connection in pairs(getconnections(mobileBtn.Activated)) do
-                connection:Fire()
-            end
+    -- STRATEGY 2: REMOTE EVENT (Based on your log)
+    -- WARNING: The keys "kJR_Ev" might change. If this fails, it falls back to 'F'.
+    local remote = BadgeService:FindFirstChild("\n\n\n")
+    if remote then
+        local cam = workspace.CurrentCamera
+        local ballPos = Match.ball.ball_itself and Match.ball.ball_itself.Position or Vector3.new(0,0,0)
+        local ballName = Match.ball.ball_itself and Match.ball.ball_itself.Name or "Ball"
+        
+        local args = {
+            [1] = "kJR_Ev", -- Key 1 (From your log)
+            [2] = "TP1oUO", -- Key 2 (From your log)
+            [3] = 0.5,
+            [4] = cam.CFrame,
+            [5] = {
+                [ballName] = ballPos -- Dynamic Ball Position
+            },
+            [6] = {
+                [1] = cam.ViewportSize.X / 2, -- Screen X
+                [2] = cam.ViewportSize.Y / 2  -- Screen Y
+            },
+            [7] = false
+        }
+        
+        pcall(function()
+            remote:FireServer(unpack(args))
         end)
-        if success then return end
+        return
     end
 
-    -- STRATEGY 2: KEYBOARD SIMULATION (Safe Fallback)
-    -- Simulating 'F' key is safer than Mouse Click for movement
+    -- STRATEGY 3: KEYBOARD SIMULATION (Fallback)
+    -- 'F' key is safer than mouse click for movement
     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-    -- We don't release immediately to ensure the game registers the "press"
     task.delay(0.05, function()
         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
     end)
