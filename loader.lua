@@ -1,5 +1,5 @@
 -- ==========================================
--- SINGLETON CHECK (PREVENTS MULTIPLE EXECUTIONS)
+-- SINGLETON CHECK
 -- ==========================================
 if _G.ProjectStark_Loaded then
     game:GetService("StarterGui"):SetCore("SendNotification", {
@@ -12,18 +12,13 @@ end
 _G.ProjectStark_Loaded = true
 
 -- ==========================================
--- BLADE BALL AUTO-PARRY SCRIPT - IMPROVED SPAM LOGIC
--- Optimized for Close Combat & Clashing
--- ==========================================
-
--- ==========================================
--- LOAD NEVERZEN UI LIBRARY
+-- BLADE BALL AUTO-PARRY - MOBILE FIXES APPLIED
 -- ==========================================
 
 local Neverzen = loadstring(game:HttpGet("https://raw.githubusercontent.com/zxciaz/VenyxUI/main/Reuploaded"))()
 
 -- ==========================================
--- SERVICES & INITIAL SETUP
+-- SERVICES
 -- ==========================================
 
 local Players = game:GetService("Players")
@@ -38,7 +33,15 @@ local workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
 
 -- ==========================================
--- CREATE UI
+-- MOBILE SLIDER FIXER
+-- ==========================================
+-- This forces the UI to stop dragging sliders when you lift your finger
+UserInputService.TouchEnded:Connect(function()
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+end)
+
+-- ==========================================
+-- UI SETUP
 -- ==========================================
 
 local UI = Neverzen.new("BURAT")
@@ -48,11 +51,11 @@ local UI = Neverzen.new("BURAT")
 -- ==========================================
 
 local Settings = {
-    ParryMode = "Blatant",     -- Recommended for spam
+    ParryMode = "Blatant",
     AutoParry = true,
-    DetectCurvedShots = true,  -- Changed default to true for safety
+    DetectCurvedShots = true,
     AutoSpam = true,
-    MaxHits = 10,              -- Increased default for spam battles
+    MaxHits = 10,
     ModDetection = false,
     CurveShots = false,
     WalkToBall = false,
@@ -153,6 +156,22 @@ local function LerpRadians(from, to, alpha)
 end
 
 -- ==========================================
+-- INPUT HANDLER (MOBILE FIX)
+-- ==========================================
+
+local function PerformInput()
+    if UserInputService.TouchEnabled then
+        -- MOBILE: Use 'F' Key simulation. This does NOT interrupt the joystick.
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+    else
+        -- PC: Mouse click is faster/more reliable for PC
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+    end
+end
+
+-- ==========================================
 -- BALL FUNCTIONS
 -- ==========================================
 
@@ -241,26 +260,25 @@ function Match.perform_grab_animation()
         if anim then
             grabParryAnim = anim
             if anim.Name == "Grab" then
-                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0.001)
+                PerformInput()
             end
         end
     end
 
     Playuh.properties.grab_animation = playerChar.Humanoid:LoadAnimation(grabParryAnim)
     Playuh.properties.grab_animation:Play()
-    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0.001)
+    PerformInput()
 end
 
 -- ==========================================
--- PERFORM SPAM (IMPROVED FOR AGGRESSIVE CLOSE COMBAT, EVEN TOO CLOSE)
+-- PERFORM SPAM
 -- ==========================================
 
 function Match.perform_spam()
     local props = Match.ball.properties
     
-    -- Safety Checks
     if not Settings.AutoSpam then return end
-    if props.auto_spam then return end  -- Already spamming
+    if props.auto_spam then return end
     
     local ball = Match.ball.ball_itself
     if not ball then return end
@@ -268,29 +286,24 @@ function Match.perform_spam()
     local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not myRoot then return end
     
-    -- Calculate current stats
     local myPos = myRoot.Position
     local ballPos = ball.Position
     local dist = (myPos - ballPos).Magnitude
     local ballVelocity = ball.AssemblyLinearVelocity
     local speed = ballVelocity.Magnitude
     
-    -- STRICT SPAM RANGE: Only activate in VERY close combat
-    -- This prevents overlap with regular parry
-    local SPAM_MIN_DISTANCE = 5   -- Must be closer than 5 studs
-    local SPAM_MAX_DISTANCE = 15  -- But not farther than 15 studs
-    local SPAM_MIN_SPEED = 50     -- Ball must be fast
+    local SPAM_MIN_DISTANCE = 5
+    local SPAM_MAX_DISTANCE = 15
+    local SPAM_MIN_SPEED = 50
     
     local isInSpamRange = (dist >= SPAM_MIN_DISTANCE and dist <= SPAM_MAX_DISTANCE and speed > SPAM_MIN_SPEED)
     
     if not isInSpamRange then return end
     
-    -- Verify we're the target
     if Match.ball.ball_itself:GetAttribute("target") ~= LocalPlayer.Name then return end
     
-    -- LOCK SPAM MODE
     props.auto_spam = true
-    props.cooldown = true  -- Block regular parry
+    props.cooldown = true
     
     task.spawn(function()
         local startTime = tick()
@@ -298,63 +311,47 @@ function Match.perform_spam()
         local maxDuration = 2.0
         
         while props.auto_spam and Match.ball.ball_itself do
-            -- Validate Target
             local currentTarget = Match.ball.ball_itself:GetAttribute("target")
-            if currentTarget ~= LocalPlayer.Name then
-                break
-            end
+            if currentTarget ~= LocalPlayer.Name then break end
 
-            -- Validate Distance (exit if ball moves out of spam range)
             if not myRoot or not myRoot.Parent then break end
-            
             local liveDist = (myRoot.Position - Match.ball.ball_itself.Position).Magnitude
             
-            -- EXIT CONDITIONS:
-            if liveDist < SPAM_MIN_DISTANCE then break end  -- Too close (likely hit)
-            if liveDist > SPAM_MAX_DISTANCE + 5 then break end  -- Too far (back to normal parry)
-            
-            -- Check max duration
+            if liveDist < SPAM_MIN_DISTANCE then break end
+            if liveDist > SPAM_MAX_DISTANCE + 5 then break end
             if (tick() - startTime) > maxDuration then break end
 
-            -- ULTRA-FAST CLICK
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            -- Use the mobile-safe input function
+            PerformInput()
             clickCount = clickCount + 1
             props.last_hit = tick()
             
-            -- Maximum speed using Heartbeat
             RunService.Heartbeat:Wait()
         end
         
-        -- CLEANUP
         props.auto_spam = false
-        task.wait(0.1)  -- Brief cooldown before allowing regular parry
+        task.wait(0.1)
         props.cooldown = false
-        
-        print(string.format("[SPAM] %.2fs - %d clicks @ %.1f studs", 
-            tick() - startTime, clickCount, (myRoot.Position - Match.ball.ball_itself.Position).Magnitude))
     end)
 end
 
 -- ==========================================
--- PERFORM PARRY (UPDATED INTEGRATION WITH ENHANCED DOUBLE-PARRY PREVENTION)
+-- PERFORM PARRY
 -- ==========================================
 
 function Match.perform_parry()
     local props = Match.ball.properties
 
-    -- BLOCK if spam is active OR in cooldown
     if props.auto_spam then return end
     if props.cooldown and not props.auto_spam then return end
     
-    -- BLOCK if ball is in spam range (let spam handler deal with it)
     if Settings.AutoSpam and props.distance >= 5 and props.distance <= 15 and props.speed > 50 then
-        return  -- This is spam territory, don't parry
+        return
     end
 
     props.parries = props.parries + 1
     props.last_hit = tick()
 
-    -- Visuals
     Match.perform_grab_animation()
     props.cooldown = true
 
@@ -373,8 +370,8 @@ function Match.perform_parry()
         end)
     end
 
-    -- Actual Input
-    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0.001)
+    -- Use the mobile-safe input function
+    PerformInput()
 
     task.delay(HitDelayCheck, function()
         if props.parries > 0 then
@@ -651,12 +648,6 @@ task.spawn(function()
             props.parry_range = props.parry_range + 11
         end
 
-        -- REMOVE THIS SECTION (causing double parry):
-        -- if Settings.AutoSpam and props.distance < 20 and props.speed > 60 then
-        --     Match.perform_spam()
-        --     return
-        -- end
-
         if props.is_curved then return end
 
         if props.distance > props.parry_range 
@@ -692,8 +683,7 @@ task.spawn(function()
 end)
 
 -- ==========================================
--- UPDATED: SPAM CHECKER (With strict range check)
--- Place this RIGHT AFTER your main AUTO PARRY LOGIC LOOP
+-- SPAM CHECKER
 -- ==========================================
 
 task.spawn(function()
@@ -705,9 +695,8 @@ task.spawn(function()
         if not char or char.Parent == workspace.Dead then return end
         
         local props = Match.ball.properties
-        if props.auto_spam then return end  -- Already spamming
+        if props.auto_spam then return end
         
-        -- STRICT SPAM RANGE CHECK
         local SPAM_MIN_DISTANCE = 5
         local SPAM_MAX_DISTANCE = 15
         local SPAM_MIN_SPEED = 50
@@ -718,13 +707,11 @@ task.spawn(function()
             props.speed > SPAM_MIN_SPEED
         )
         
-        -- Only trigger if in spam range AND we're the target
         if isInSpamRange and Match.target.current == LocalPlayer.Character then
             Match.perform_spam()
         end
     end)
 end)
-
 
 -- ==========================================
 -- WALK TO BALL
