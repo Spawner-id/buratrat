@@ -271,13 +271,12 @@ end
 
 local function SendParryInput()
     if IS_MOBILE then
-        -- For mobile: Use a brief delay and ensure we don't interfere with touch controls
-        task.wait(Settings.MobileParryDelay)
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        -- For mobile: Use keypress F instead of mouse click to avoid joystick issues
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
         task.wait(0.05)
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
     else
-        -- For PC: Instant input
+        -- For PC: Instant mouse input
         VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0.001)
     end
 end
