@@ -12,7 +12,7 @@ end
 _G.ProjectStark_Loaded = true
 
 -- ==========================================
--- BLADE BALL AUTO-PARRY SCRIPT - MOBILE FIX (CENTER TAP)
+-- BLADE BALL AUTO-PARRY SCRIPT - MOBILE BUTTON FIX
 -- Optimized for Close Combat & Clashing
 -- ==========================================
 
@@ -36,6 +36,7 @@ local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
+local VirtualUser = game:GetService("VirtualUser")
 
 -- ==========================================
 -- CREATE UI
@@ -71,23 +72,64 @@ local HitDelayCheck = 0.10
 local MinRange = 3.0
 
 -- ==========================================
--- INPUT HELPER (MOBILE CENTER TAP FIX)
+-- MOBILE BUTTON FINDER
+-- ==========================================
+
+local cachedBlockButton = nil
+
+local function GetMobileBlockButton()
+    if cachedBlockButton and cachedBlockButton.Parent and cachedBlockButton.Visible then
+        return cachedBlockButton
+    end
+    
+    local gui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not gui then return nil end
+    
+    -- Search specifically for the mobile combat interface
+    -- Common names in Blade Ball: "MobileUI", "TouchGui", "Combat"
+    for _, descendant in pairs(gui:GetDescendants()) do
+        if descendant:IsA("ImageButton") or descendant:IsA("TextButton") then
+            -- Check for "Block" in the name (Blade Ball usually names it "Block" or "Parry")
+            if descendant.Name == "Block" or descendant.Name == "Parry" or descendant.Name == "Button_Block" then
+                if descendant.Visible and descendant.AbsolutePosition.X > 0 then
+                    cachedBlockButton = descendant
+                    return descendant
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- ==========================================
+-- INPUT HELPER (SMART CLICKER)
 -- ==========================================
 
 local function PerformInput()
-    if UserInputService.TouchEnabled then
-        -- MOBILE FIX:
-        -- Calculate the CENTER of the screen.
-        -- We click here instead of (0,0) to avoid hitting the Movement Joystick.
-        local viewportSize = workspace.CurrentCamera.ViewportSize
-        local x = viewportSize.X / 2
-        local y = viewportSize.Y / 2
+    if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
+        -- === MOBILE LOGIC ===
+        local btn = GetMobileBlockButton()
         
-        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
-        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+        if btn then
+            -- Click the CENTER of the found button
+            local btnX = btn.AbsolutePosition.X + (btn.AbsoluteSize.X / 2)
+            local btnY = btn.AbsolutePosition.Y + (btn.AbsoluteSize.Y / 2)
+            
+            VirtualInputManager:SendMouseButtonEvent(btnX, btnY, 0, true, game, 0)
+            VirtualInputManager:SendMouseButtonEvent(btnX, btnY, 0, false, game, 0)
+        else
+            -- FALLBACK: Click Bottom-Right area (Safe Zone for Combat Buttons)
+            -- Avoids Joystick (Bottom-Left) and Camera (Center)
+            local viewport = workspace.CurrentCamera.ViewportSize
+            local safeX = viewport.X * 0.85 -- 85% to the right
+            local safeY = viewport.Y * 0.75 -- 75% down
+            
+            VirtualInputManager:SendMouseButtonEvent(safeX, safeY, 0, true, game, 0)
+            VirtualInputManager:SendMouseButtonEvent(safeX, safeY, 0, false, game, 0)
+        end
     else
-        -- PC:
-        -- Standard click works fine.
+        -- === PC LOGIC ===
+        -- Standard click
         VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
         VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
     end
@@ -338,7 +380,7 @@ function Match.perform_spam()
             -- Check max duration
             if (tick() - startTime) > maxDuration then break end
 
-            -- HYBRID INPUT
+            -- SMART INPUT
             PerformInput()
             
             clickCount = clickCount + 1
@@ -396,7 +438,7 @@ function Match.perform_parry()
         end)
     end
 
-    -- Actual Input (Hybrid)
+    -- Actual Input (Smart)
     PerformInput()
 
     task.delay(HitDelayCheck, function()
