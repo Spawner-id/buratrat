@@ -1,5 +1,5 @@
 -- ==========================================
--- SINGLETON CHECK
+-- SINGLETON CHECK (PREVENTS MULTIPLE EXECUTIONS)
 -- ==========================================
 if _G.ProjectStark_Loaded then
     game:GetService("StarterGui"):SetCore("SendNotification", {
@@ -12,13 +12,14 @@ end
 _G.ProjectStark_Loaded = true
 
 -- ==========================================
--- BLADE BALL AUTO-PARRY - MOBILE MOVEMENT FIXED
+-- BLADE BALL AUTO-PARRY SCRIPT - IMPROVED
+-- Enhanced Parry Accuracy, Curve Detection & Mobile Support
 -- ==========================================
 
 local Neverzen = loadstring(game:HttpGet("https://raw.githubusercontent.com/zxciaz/VenyxUI/main/Reuploaded"))()
 
 -- ==========================================
--- SERVICES
+-- SERVICES & INITIAL SETUP
 -- ==========================================
 
 local Players = game:GetService("Players")
@@ -31,17 +32,14 @@ local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
-local BadgeService = game:GetService("BadgeService")
 
 -- ==========================================
--- SLIDER FIX (TOUCH MONITOR)
+-- MOBILE DETECTION
 -- ==========================================
-UserInputService.TouchEnded:Connect(function()
-    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-end)
+local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 -- ==========================================
--- UI SETUP
+-- CREATE UI
 -- ==========================================
 
 local UI = Neverzen.new("BURAT")
@@ -63,15 +61,17 @@ local Settings = {
     PlayerSpeed = 35,
     InfiniteJump = false,
     DebugMode = false,
+    -- Mobile-specific
+    MobileParryDelay = 0.05, -- Slight delay for mobile tap response
 }
 
 -- ==========================================
--- CONSTANTS
+-- CONSTANTS (IMPROVED)
 -- ==========================================
 
 local ParryDuration = 0.35
-local HitDelayCheck = 0.10
-local MinRange = 3.0
+local HitDelayCheck = 0.08 -- Reduced for faster response
+local MinRange = 2.5 -- Slightly reduced for better accuracy
 
 -- ==========================================
 -- MATCH STATE
@@ -89,6 +89,7 @@ local Match = {
             rotation = Vector3.zero,
             position = Vector3.zero,
             last_warping = tick(),
+            parry_remote = nil,
             is_curved = false,
             last_tick = tick(),
             auto_spam = false,
@@ -110,7 +111,9 @@ local Match = {
             last_curve_position = Vector3.zero,
             last_velocity = Vector3.zero,
             parry_in_progress = false,
-            adaptive_cooldown = 0.15,
+            adaptive_cooldown = 0.12, -- Improved cooldown
+            curve_detection_samples = {},
+            velocity_history = {},
         },
     },
     target = {
@@ -154,73 +157,9 @@ local function LerpRadians(from, to, alpha)
     return from + ((to - from) * alpha)
 end
 
--- ==========================================
--- INPUT HANDLER (MOBILE MOVEMENT FIX)
--- ==========================================
-
-local function PerformInput()
-    -- STRATEGY 1: FIND THE ACTUAL SCREEN BUTTON
-    -- This is the best method. It taps the button virtually without stopping your joystick.
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if playerGui then
-        -- Common locations for the block button in Blade Ball
-        local buttonTargets = {
-            playerGui:FindFirstChild("MobileUI") and playerGui.MobileUI:FindFirstChild("Block"),
-            playerGui:FindFirstChild("MobileUI") and playerGui.MobileUI:FindFirstChild("Button"),
-            playerGui:FindFirstChild("Main") and playerGui.Main:FindFirstChild("Mobile") and playerGui.Main.Mobile:FindFirstChild("Block"),
-            playerGui:FindFirstChild("Hotbar") and playerGui.Hotbar:FindFirstChild("Block"),
-        }
-
-        for _, btn in pairs(buttonTargets) do
-            if btn and btn:IsA("GuiButton") and btn.Visible then
-                local pos = btn.AbsolutePosition
-                local size = btn.AbsoluteSize
-                local centerX = pos.X + (size.X / 2)
-                local centerY = pos.Y + (size.Y / 2)
-                
-                -- Send Touch Event (Simulates a finger tap, preserves Joystick)
-                VirtualInputManager:SendTouchEvent(0, 0, centerX, centerY) -- Touch Start
-                VirtualInputManager:SendTouchEvent(0, 1, centerX, centerY) -- Touch End
-                return -- Success
-            end
-        end
-    end
-
-    -- STRATEGY 2: REMOTE EVENT (Based on your log)
-    -- WARNING: The keys "kJR_Ev" might change. If this fails, it falls back to 'F'.
-    local remote = BadgeService:FindFirstChild("\n\n\n")
-    if remote then
-        local cam = workspace.CurrentCamera
-        local ballPos = Match.ball.ball_itself and Match.ball.ball_itself.Position or Vector3.new(0,0,0)
-        local ballName = Match.ball.ball_itself and Match.ball.ball_itself.Name or "Ball"
-        
-        local args = {
-            [1] = "kJR_Ev", -- Key 1 (From your log)
-            [2] = "TP1oUO", -- Key 2 (From your log)
-            [3] = 0.5,
-            [4] = cam.CFrame,
-            [5] = {
-                [ballName] = ballPos -- Dynamic Ball Position
-            },
-            [6] = {
-                [1] = cam.ViewportSize.X / 2, -- Screen X
-                [2] = cam.ViewportSize.Y / 2  -- Screen Y
-            },
-            [7] = false
-        }
-        
-        pcall(function()
-            remote:FireServer(unpack(args))
-        end)
-        return
-    end
-
-    -- STRATEGY 3: KEYBOARD SIMULATION (Fallback)
-    -- 'F' key is safer than mouse click for movement
-    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-    task.delay(0.05, function()
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-    end)
+-- Calculate trajectory prediction
+local function PredictBallPosition(currentPos, velocity, time)
+    return currentPos + (velocity * time)
 end
 
 -- ==========================================
@@ -242,6 +181,23 @@ function Match.get_client_ball()
         end
     end
 end
+
+-- ==========================================
+-- PARRY REMOTE SETUP
+-- ==========================================
+
+function Match.get_parry_remote()
+    local services = {game:GetService("AnimationFromVideoCreatorService"), game:GetService("AdService")}
+    for _, service in services do
+        local remoteEvent = service:FindFirstChildOfClass("RemoteEvent")
+        if remoteEvent and remoteEvent.Name:find("\n") then
+            Match.ball.properties.parry_remote = remoteEvent
+            return
+        end
+    end
+end
+
+Match.get_parry_remote()
 
 -- ==========================================
 -- CURVE CONFIGS
@@ -295,18 +251,39 @@ function Match.perform_grab_animation()
         if anim then
             grabParryAnim = anim
             if anim.Name == "Grab" then
-                PerformInput()
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0.001)
             end
         end
     end
 
     Playuh.properties.grab_animation = playerChar.Humanoid:LoadAnimation(grabParryAnim)
     Playuh.properties.grab_animation:Play()
-    PerformInput()
+    
+    -- Mobile fix: Don't send input during animation to prevent joystick issues
+    if not IS_MOBILE then
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0.001)
+    end
 end
 
 -- ==========================================
--- PERFORM SPAM
+-- MOBILE-SAFE INPUT (PREVENTS JOYSTICK LOSS)
+-- ==========================================
+
+local function SendParryInput()
+    if IS_MOBILE then
+        -- For mobile: Use a brief delay and ensure we don't interfere with touch controls
+        task.wait(Settings.MobileParryDelay)
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        task.wait(0.05)
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+    else
+        -- For PC: Instant input
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0.001)
+    end
+end
+
+-- ==========================================
+-- IMPROVED SPAM (MOBILE COMPATIBLE)
 -- ==========================================
 
 function Match.perform_spam()
@@ -327,6 +304,7 @@ function Match.perform_spam()
     local ballVelocity = ball.AssemblyLinearVelocity
     local speed = ballVelocity.Magnitude
     
+    -- Strict spam range
     local SPAM_MIN_DISTANCE = 5
     local SPAM_MAX_DISTANCE = 15
     local SPAM_MIN_SPEED = 50
@@ -343,34 +321,47 @@ function Match.perform_spam()
     task.spawn(function()
         local startTime = tick()
         local clickCount = 0
-        local maxDuration = 2.0
+        local maxDuration = IS_MOBILE and 1.5 or 2.0 -- Shorter on mobile
         
         while props.auto_spam and Match.ball.ball_itself do
             local currentTarget = Match.ball.ball_itself:GetAttribute("target")
             if currentTarget ~= LocalPlayer.Name then break end
 
             if not myRoot or not myRoot.Parent then break end
+            
             local liveDist = (myRoot.Position - Match.ball.ball_itself.Position).Magnitude
             
             if liveDist < SPAM_MIN_DISTANCE then break end
             if liveDist > SPAM_MAX_DISTANCE + 5 then break end
+            
             if (tick() - startTime) > maxDuration then break end
 
-            PerformInput()
+            -- Mobile-safe input
+            SendParryInput()
             clickCount = clickCount + 1
             props.last_hit = tick()
             
-            RunService.Heartbeat:Wait()
+            -- Mobile uses slightly slower rate to prevent issues
+            if IS_MOBILE then
+                task.wait(0.05)
+            else
+                RunService.Heartbeat:Wait()
+            end
         end
         
         props.auto_spam = false
         task.wait(0.1)
         props.cooldown = false
+        
+        if Settings.DebugMode then
+            print(string.format("[SPAM] %.2fs - %d clicks @ %.1f studs", 
+                tick() - startTime, clickCount, (myRoot.Position - Match.ball.ball_itself.Position).Magnitude))
+        end
     end)
 end
 
 -- ==========================================
--- PERFORM PARRY
+-- IMPROVED PARRY (MOBILE COMPATIBLE)
 -- ==========================================
 
 function Match.perform_parry()
@@ -404,7 +395,8 @@ function Match.perform_parry()
         end)
     end
 
-    PerformInput()
+    -- Mobile-safe input
+    SendParryInput()
 
     task.delay(HitDelayCheck, function()
         if props.parries > 0 then
@@ -425,13 +417,15 @@ function Match.reset()
     props.maximum_speed = 0
     props.parries = 0
     props.parry_in_progress = false
+    props.curve_detection_samples = {}
+    props.velocity_history = {}
     Match.entity_properties.server_position = Vector3.zero
     Match.target.current = nil
     Match.target.from = nil
 end
 
 -- ==========================================
--- CURVE DETECTION
+-- ENHANCED CURVE DETECTION
 -- ==========================================
 
 function Match.is_curved()
@@ -441,6 +435,7 @@ function Match.is_curved()
     local props = Match.ball.properties
     local targetName = target.Name
 
+    -- Special ability checks
     if target.PrimaryPart:FindFirstChild("MaxShield") and targetName ~= LocalPlayer.Name and props.distance < 50 then
         return false
     end
@@ -465,41 +460,71 @@ function Match.is_curved()
         props.aero_dynamic_time = tick()
     end
 
-    local predictedPos = props.position + (props.velocity * (props.distance / props.maximum_speed))
+    -- ENHANCED CURVE DETECTION ALGORITHM
+    -- Track velocity changes over time
+    table.insert(props.velocity_history, {
+        velocity = props.velocity,
+        position = props.position,
+        time = tick()
+    })
+    
+    -- Keep only recent history (last 10 samples)
+    if #props.velocity_history > 10 then
+        table.remove(props.velocity_history, 1)
+    end
+    
+    -- Analyze velocity changes
+    local velocityChangeDetected = false
+    if #props.velocity_history >= 3 then
+        local recent = props.velocity_history[#props.velocity_history]
+        local older = props.velocity_history[#props.velocity_history - 2]
+        
+        local directionChange = recent.velocity.Unit:Dot(older.velocity.Unit)
+        
+        -- Detect significant direction change (curve indicator)
+        if directionChange < 0.85 then -- More sensitive threshold
+            velocityChangeDetected = true
+        end
+    end
+    
+    -- Trajectory prediction
+    local predictedPos = props.position + (props.velocity * (props.distance / (props.maximum_speed + 0.1)))
     local lastCurvePos = props.last_curve_position or props.position
     local dirChange = (predictedPos - lastCurvePos).Unit
     local velDirection = props.velocity.Unit:Dot(dirChange)
     local angleDelta = math.acos(math.clamp(velDirection, -1, 1))
     
-    local speedFactor = math.min(props.speed / 100, 40)
-    local dotFactor = 40.046 * math.max(props.dot, 0)
+    -- Improved factors
+    local speedFactor = math.min(props.speed / 90, 45)
+    local dotFactor = 35 * math.max(props.dot, 0)
     local ping = Playuh.Entity.properties.ping
     local travelTime = (props.distance / (props.velocity.Magnitude + 0.01)) - (ping / 1000)
     
-    local curveThreshold = (15 - math.min(props.distance / 1000, 15)) + dotFactor + speedFactor
+    local curveThreshold = (12 - math.min(props.distance / 1200, 12)) + dotFactor + speedFactor
     
     if props.maximum_speed > 100 and travelTime > (ping / 10) then
-        curveThreshold = math.max(curveThreshold - 15, 15)
+        curveThreshold = math.max(curveThreshold - 12, 12)
     end
 
     if props.distance < curveThreshold then return false end
     
-    if angleDelta > (0.5 + (props.speed / 310)) then
+    -- More sensitive angle detection
+    if angleDelta > (0.4 + (props.speed / 350)) or velocityChangeDetected then
         props.auto_spam = false
         return true
     end
 
-    if props.lerp_radians < 0.018 then
+    if props.lerp_radians < 0.02 then
         props.last_curve_position = props.position
         props.last_warping = tick()
     end
 
-    if (tick() - props.last_warping) < (travelTime / 1.5) then
+    if (tick() - props.last_warping) < (travelTime / 1.3) then
         return true
     end
 
     props.last_curve_position = props.position
-    return props.dot < (ParryDuration - (ping / 950))
+    return props.dot < (ParryDuration - (ping / 900))
 end
 
 -- ==========================================
@@ -548,7 +573,7 @@ RunService.PreSimulation:Connect(function()
     props.position = ballEntity.Position
     props.velocity = ballEntity.AssemblyLinearVelocity
 
-        local zoomies = ballEntity:FindFirstChild("zoomies")
+    local zoomies = ballEntity:FindFirstChild("zoomies")
     if zoomies then
         props.velocity = zoomies.VectorVelocity
     end
@@ -558,7 +583,7 @@ RunService.PreSimulation:Connect(function()
     props.direction = (Playuh.Entity.properties.server_position - props.position).Unit
     props.dot = props.direction:Dot(props.velocity.Unit)
     props.radians = math.rad(math.asin(props.dot))
-    props.lerp_radians = LerpRadians(props.lerp_radians, props.radians, 0.8)
+    props.lerp_radians = LerpRadians(props.lerp_radians, props.radians, 0.85)
 
     if props.lerp_radians ~= props.lerp_radians then
         props.lerp_radians = 0.027
@@ -566,7 +591,7 @@ RunService.PreSimulation:Connect(function()
 
     props.maximum_speed = math.max(props.speed, props.maximum_speed)
 
-    Match.target.aim = (not UserInputService.TouchEnabled and LocalPlayer.Character) or LocalPlayer.Character
+    Match.target.aim = LocalPlayer.Character
 
     local targetAttr = ballEntity:GetAttribute("target")
     if targetAttr then
@@ -640,7 +665,7 @@ workspace.Balls.ChildAdded:Connect(function()
 end)
 
 -- ==========================================
--- AUTO PARRY LOGIC LOOP
+-- IMPROVED AUTO PARRY LOGIC LOOP
 -- ==========================================
 
 task.spawn(function()
@@ -662,23 +687,25 @@ task.spawn(function()
         props.is_curved = Match.is_curved()
 
         local ping = Playuh.Entity.properties.ping
-        local baseAccuracy = 0.99
-        local distanceFactor = baseAccuracy * (1 / (Match.entity_properties.distance + 0.05)) * 1000
-        local pingFactor = math.clamp(ping / 10, 10, 16)
-        local parryBaseRange = (props.maximum_speed / 10.5) + pingFactor
+        
+        -- IMPROVED ACCURACY CALCULATION
+        local baseAccuracy = 1.02 -- Slightly increased
+        local distanceFactor = baseAccuracy * (1 / (Match.entity_properties.distance + 0.05)) * 1100
+        local pingFactor = math.clamp(ping / 9.5, 10, 18)
+        local parryBaseRange = (props.maximum_speed / 9.8) + pingFactor
 
         if Playuh.Entity.properties.is_moving then
-            parryBaseRange = parryBaseRange * 0.10
+            parryBaseRange = parryBaseRange * 0.12
         end
 
         if ping >= 190 then
-            parryBaseRange = parryBaseRange * (1 + (ping / 1000))
+            parryBaseRange = parryBaseRange * (1 + (ping / 900))
         end
 
-        props.parry_range = ((parryBaseRange * 1.16) + pingFactor + props.speed) / MinRange
+        props.parry_range = ((parryBaseRange * 1.20) + pingFactor + props.speed) / MinRange
 
         if Playuh.Entity.properties.sword == "Titan Blade" then
-            props.parry_range = props.parry_range + 11
+            props.parry_range = props.parry_range + 12
         end
 
         if props.is_curved then return end
@@ -709,18 +736,18 @@ task.spawn(function()
         task.spawn(function()
             repeat
                 RunService.PreSimulation:Wait()
-            until (tick() - props.last_hit) > (1 - (pingFactor / 100))
+            until (tick() - props.last_hit) > (1 - (pingFactor / 90))
             props.cooldown = false
         end)
     end)
 end)
 
 -- ==========================================
--- SPAM CHECKER
+-- SPAM CHECKER (MOBILE OPTIMIZED)
 -- ==========================================
 
 task.spawn(function()
-    RunService.Heartbeat:Connect(function()
+    local heartbeatConnection = RunService.Heartbeat:Connect(function()
         if not Settings.AutoSpam then return end
         if not Settings.AutoParry then return end
         
@@ -815,9 +842,15 @@ CombatSection:addDropdown("Parry Mode", {"Normal", "Legit", "Blatant"}, function
     Settings.ParryMode = selected
 end)
 
-CombatSection:addSlider("Accurancy", 1, Settings.MaxHits, 100, function(value)
+CombatSection:addSlider("Accuracy", 1, Settings.MaxHits, 100, function(value)
     Settings.MaxHits = value
 end)
+
+if IS_MOBILE then
+    CombatSection:addSlider("Mobile Delay (ms)", 0, Settings.MobileParryDelay * 1000, 100, function(value)
+        Settings.MobileParryDelay = value / 1000
+    end)
+end
 
 -- ==========================================
 -- VISUAL TAB
@@ -836,7 +869,7 @@ end)
 VisualSection:addButton("Info", function()
     game:GetService("StarterGui"):SetCore("SendNotification", {
         Title = "Curve Shots";
-        Text = "Curve shots will aim at different angles. Press L to open a normal sword crate.";
+        Text = "Curve shots will aim at different angles. Enhanced detection!";
         Duration = 5;
     })
 end)
@@ -902,6 +935,12 @@ ExtrasSection:addButton("FPS Boost", function()
             v.Enabled = false
         end
     end
+    
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "FPS Boost";
+        Text = "Applied successfully!";
+        Duration = 3;
+    })
 end)
 
 ExtrasSection:addButton("Server Hop", function()
@@ -910,6 +949,10 @@ end)
 
 ExtrasSection:addButton("Rejoin", function()
     game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+end)
+
+ExtrasSection:addToggle("Debug Mode", Settings.DebugMode, function(value)
+    Settings.DebugMode = value
 end)
 
 local CreditsSection = ExtrasTab:addSection("Credits")
@@ -980,36 +1023,40 @@ LocalPlayer.Idled:Connect(function()
 end)
 
 -- ==========================================
--- MOBILE GUI (TOGGLE BUTTON)
+-- MOBILE GUI (IMPROVED - DOESN'T INTERFERE WITH JOYSTICK)
 -- ==========================================
 
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "ProjectStarkMobileUI"
 ScreenGui.Parent = CoreGui
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
 
 local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Name = "ToggleBtn"
 ToggleBtn.Parent = ScreenGui
 ToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 ToggleBtn.BorderSizePixel = 0
-ToggleBtn.Position = UDim2.new(0.1, 0, 0.1, 0) -- Top left area
-ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
+ToggleBtn.Position = UDim2.new(0.85, 0, 0.1, 0)
+ToggleBtn.Size = UDim2.new(0, 60, 0, 60)
 ToggleBtn.Font = Enum.Font.SourceSansBold
 ToggleBtn.Text = "UI"
 ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleBtn.TextSize = 20.000
+ToggleBtn.TextSize = 24.000
+ToggleBtn.AutoButtonColor = false
 
 local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.CornerRadius = UDim.new(0, 12)
 UICorner.Parent = ToggleBtn
 
--- Make Button Draggable
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(100, 100, 100)
+UIStroke.Thickness = 2
+UIStroke.Parent = ToggleBtn
+
+-- Draggable (Mobile-optimized)
 local dragging, dragInput, dragStart, startPos
-local function update(input)
-    local delta = input.Position - dragStart
-    ToggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-end
 
 ToggleBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -1033,13 +1080,41 @@ end)
 
 UserInputService.InputChanged:Connect(function(input)
     if input == dragInput and dragging then
-        update(input)
+        local delta = input.Position - dragStart
+        ToggleBtn.Position = UDim2.new(
+            startPos.X.Scale, 
+            startPos.X.Offset + delta.X, 
+            startPos.Y.Scale, 
+            startPos.Y.Offset + delta.Y
+        )
     end
 end)
 
--- Toggle Logic
+-- Toggle with visual feedback
 ToggleBtn.MouseButton1Click:Connect(function()
+    -- Visual feedback
+    TweenService:Create(ToggleBtn, TweenInfo.new(0.1), {
+        BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    }):Play()
+    
+    task.wait(0.1)
+    
+    TweenService:Create(ToggleBtn, TweenInfo.new(0.1), {
+        BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    }):Play()
+    
     UI:toggle()
 end)
 
-print("✅ Project Stark Auto-Parry loaded successfully!")
+-- ==========================================
+-- STARTUP NOTIFICATION
+-- ==========================================
+
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "Project Stark Loaded";
+    Text = IS_MOBILE and "Mobile mode enabled! Enhanced accuracy & curve detection!" or "Enhanced accuracy & curve detection active!";
+    Duration = 5;
+})
+
+print("✅ Project Stark Auto-Parry (IMPROVED) loaded successfully!")
+print(IS_MOBILE and "📱 Mobile Mode: ON" or "💻 Desktop Mode: ON")
