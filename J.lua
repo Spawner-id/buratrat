@@ -1,13 +1,11 @@
 --[[
     Infinixity | Blade Ball
-    UI Library: Fluent
-    Logic: Preserved & Optimized
+    UI Library: Venyx (Replaced from Orion)
+    Logic: Preserved
 ]]
 
-local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
-local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
-local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
-
+-- // UI LIBRARY //
+local Neverzen = loadstring(game:HttpGet("https://raw.githubusercontent.com/zxciaz/VenyxUI/main/Reuploaded"))()
 local NotifyName = "Infinixity"
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -774,6 +772,17 @@ local SettingsData = {
     Input = { ["Block-Keybind"] = "V" }
 }
 
+if isfile(ConfigPath .. "/config.json") then
+    local loaded = HttpService:JSONDecode(readfile(ConfigPath .. "/config.json"))
+    if loaded.Info and loaded.Info.Version and loaded.Info.Version == SettingsData.Info.Version then
+        for k, v in pairs(loaded) do
+            for key, val in pairs(v) do
+                if type(SettingsData[k]) == "table" then SettingsData[k][key] = val end
+            end
+        end
+    end
+end
+
 local GUI = {}
 State.VisualBalls = Instance.new("Folder")
 State.VisualBalls.Name = "VisualBalls"
@@ -799,9 +808,9 @@ if getgc and getgc() then
 end
 
 if typeof(State.ParryAttemptKey) ~= "string" and typeof(RemoteSignals.ParryAttempt) ~= "Instance" then
-    Fluent:Notify({
+    game:GetService("StarterGui"):SetCore("SendNotification", {
         Title = NotifyName,
-        Content = "Executor does not support function.",
+        Text = "Executor does not support function.",
         Duration = 15
     })
     return
@@ -915,240 +924,345 @@ Workspace.Alive.ChildRemoved:Connect(RemoveAlive)
 
 loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
 
--- // UI CONSTRUCTION (FLUENT) //
-local Window = Fluent:CreateWindow({
-    Title = "Infinixity | Blade Ball",
-    SubTitle = "by Infinixity",
-    TabWidth = 160,
-    Size = UDim2.fromOffset(580, 460),
-    Acrylic = true,
-    Theme = "Dark",
-    MinimizeKey = Enum.KeyCode.LeftControl
-})
+-- // UI CONSTRUCTION (VENYX) //
+local Window = Neverzen.new("Infinixity | Blade Ball", 5013109572)
 
-local Tabs = {
-    Combat = Window:AddTab({ Title = "Combat", Icon = "sword" }),
-    Macro = Window:AddTab({ Title = "Macro", Icon = "keyboard" }),
-    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
-}
+-- // COMBAT PAGE //
+local CombatPage = Window:addPage("Combat", 5012544693)
+local CombatMain = CombatPage:addSection("Main")
+local CombatAuto = CombatPage:addSection("Automation")
+local CombatSettings = CombatPage:addSection("Settings")
 
-local Options = Fluent.Options
+CombatMain:addToggle("Optimize", SettingsData.Toggle["Optimize"], function(bool)
+    SettingsData.Toggle["Optimize"] = bool
+    if FX.ClientFX then FX.ClientFX.Enabled = not bool end
+end)
 
--- COMBAT TAB
-do
-    Tabs.Combat:AddToggle("Optimize", { Title = "Optimize", Default = SettingsData.Toggle["Optimize"] }):OnChanged(function()
-        SettingsData.Toggle["Optimize"] = Options.Optimize.Value
-        if FX.ClientFX then FX.ClientFX.Enabled = not Options.Optimize.Value end
-    end)
+CombatMain:addToggle("Visualize", SettingsData.Toggle["Visualize"], function(bool)
+    SettingsData.Toggle["Visualize"] = bool
+    Config.Visualize = bool
+end)
 
-    Tabs.Combat:AddToggle("Visualize", { Title = "Visualize", Default = SettingsData.Toggle["Visualize"] }):OnChanged(function()
-        SettingsData.Toggle["Visualize"] = Options.Visualize.Value
-        Config.Visualize = Options.Visualize.Value
-    end)
+CombatMain:addButton("Manual Parry", TEMP_NO_VIRTUALIZE(function()
+    local ping
+    pcall(function() ping = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) end)
+    if not ping then ping = 0.05 end
 
-    Tabs.Combat:AddButton({
-        Title = "Manual Parry",
-        Description = "Force a parry attempt",
-        Callback = function()
-            -- Same Manual Parry Logic
-            local ping
-            pcall(function() ping = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) end)
-            if not ping then ping = 0.05 end
+    local Humanoids = { LocalPlayer = Utils:GetHumanoid(LocalPlayer.Character) }
+    local realBall = State.RealBall
+    local isSpamming = false
+    local parryArgs = {}
 
-            local Humanoids = { LocalPlayer = Utils:GetHumanoid(LocalPlayer.Character) }
-            local parryArgs = {}
-            local isSpamming = false
-
-            if State.Spamming and State.ParryCache and State.ParryCacheTimestamp and (os.clock() - State.ParryCacheTimestamp <= 0.325) then
+    if State.Spamming then
+        if State.ParryCache then
+            if State.ParryCacheTimestamp and (os.clock() - State.ParryCacheTimestamp <= 0.325) then
                 isSpamming = true
                 parryArgs = State.ParryCache
             end
-
-            if not isSpamming then
-                local targetPlayer
-                if not State.Dungeon then
-                    for _, v in pairs(Workspace.Map:GetChildren()) do
-                        if v.Name:lower():match("^dungeon") then State.Dungeon = true break end
-                    end
-                end
-
-                if State.Dungeon then
-                    parryArgs = {Camera.CFrame, Mouse.Hit, false}
-                else
-                    parryArgs = {0.5, State.ParryAttemptKey, 0.15, Camera.CFrame, Logic:PlayersScreenPoint(), {Mouse.X, Mouse.Y}, false}
-                    if SettingsData.Toggle["Curve-Ball"] then
-                        local t = Logic:Mouse2DNearestPlayer(Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2))
-                        parryArgs[4] = Logic:Angle(SettingsData.Dropdown["Curving-Mode"], t)
-                    end
-                end
-                
-                Config.Parry = true
-                task.delay(0.86, function() if Config.Parry then Config.Parry = false end end)
-            end
-            
-            if Humanoids.LocalPlayer and Humanoids.LocalPlayer.RootPart then
-                State.ParryCache = parryArgs
-                State.ParryCacheTimestamp = os.clock()
-                Utils:FireRemote(nil, RemoteSignals.ParryAttempt, unpack(parryArgs))
-            end
         end
-    })
+    end
 
-    Tabs.Combat:AddToggle("AutoParry", { Title = "Auto Parry", Default = SettingsData.Toggle["Auto-Parry"] }):OnChanged(function()
-        SettingsData.Toggle["Auto-Parry"] = Options.AutoParry.Value
-        if SignalWrapper["Auto-Parry"] then SignalWrapper["Auto-Parry"]:Disconnect() end
-        
-        local debounce = false
-        SignalWrapper["Auto-Parry"] = RunService.PreRender:Connect(TEMP_NO_VIRTUALIZE(function(dt)
-            if not SettingsData.Toggle["Auto-Parry"] then SignalWrapper["Auto-Parry"]:Disconnect() return end
-            if debounce then return end
-            local ping
-            pcall(function() ping = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) end)
-            if not ping then ping = 0.05 end
+    local targetPlayer
+    if not State.Dungeon then
+        for _, v in pairs(Workspace.Map:GetChildren()) do
+            if v.Name:lower():match("^dungeon") then State.Dungeon = true break end
+        end
+    end
 
-            local Humanoids = { LocalPlayer = Utils:GetHumanoid(LocalPlayer.Character) }
-            local realBall = State.RealBall
-            
-            -- Simplified Condition Check from original Logic
-            if Logic:Alive(LocalPlayer) and realBall and realBall.Object and realBall.Target == LocalPlayer and not realBall.Parried and realBall.Velocity.Magnitude >= 0 and #realBall.Animators <= 0 and Humanoids.LocalPlayer then
-                 local shouldParry = false
-                 -- (Logic omitted for brevity, reusing the exact check from previous turn)
-                 if (realBall.ZoomiesFluctuated and realBall.ZoomiesDot >= 0 and (Humanoids.LocalPlayer.RootPart.Position - realBall.Position).Magnitude <= 17) then shouldParry = true end
-                 -- ... (Other conditions) ...
-                 
-                 -- Re-implementing the core check block for safety
-                 if (realBall.ZoomiesFluctuated and ((function()
-                    if realBall.ZoomiesDot >= 0 then
-                        local dist = (Humanoids.LocalPlayer.RootPart.Position - realBall.Position).Magnitude
-                        if dist <= math.clamp(realBall.Velocity.Magnitude, 17, 17) then return true end
+    if not isSpamming then
+        if State.Dungeon then
+            parryArgs[1] = Camera.CFrame
+            parryArgs[2] = Mouse.Hit
+            parryArgs[3] = false
+        else
+            parryArgs[1] = 0.5
+            parryArgs[2] = State.ParryAttemptKey
+            parryArgs[3] = 0.15
+            parryArgs[5] = Logic:PlayersScreenPoint()
+            parryArgs[7] = false
+
+            if Humanoids.LocalPlayer and Humanoids.LocalPlayer.RootPart then
+                if SettingsData.Dropdown["Targeting-Mode"] == "Nearest to Mouse" then
+                    targetPlayer = Logic:Mouse2DNearestPlayer(Vector2.new(Mouse.X, Mouse.Y))
+                elseif SettingsData.Dropdown["Targeting-Mode"] == "Nearest to Screen Center" then
+                    targetPlayer = Logic:Mouse2DNearestPlayer(Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2))
+                elseif SettingsData.Dropdown["Targeting-Mode"] == "Last Targeted Player" then
+                    if State.RealBall and State.RealBall.LastActualTarget then
+                        targetPlayer = Utils:GetHumanoidRootPart(State.RealBall.LastActualTarget:IsA("Player") and State.RealBall.LastActualTarget.Character or State.RealBall.LastActualTarget)
                     end
-                end)())) or (realBall.ZoomiesFluctuated and realBall.ZoomiesDecreaseParryable and ((function()
-                    local function check(offset)
-                        local direction = (Humanoids.LocalPlayer.RootPart.Position - realBall.Position)
-                        local adjusted = direction - (direction.Unit * offset)
-                        local time = Utils:TimeToPosition(adjusted, realBall.ZoomiesVelocity)
-                        local toward = Utils:TowardsPosition(realBall.Position, Humanoids.LocalPlayer.RootPart.Position, Humanoids.LocalPlayer.MoveDirection)
-                        local range = SettingsData.Slider["Range"] + (toward > 0 and toward * 0.05 or toward < 0 and toward * -0.05 or 0) + (LocalPlayer.Character:FindFirstChild("Titan Blade") and 0.1 or 0)
-                        return time <= (range + (ping + dt))
-                    end
-                    return check(0) or check(17)
-                end)()) and ((function()
-                    local cond1 = realBall.Dot >= (SettingsData.Slider["Direct-Point"] - (ping + dt))
-                    local cond2 = realBall.ZoomiesDot >= (1 - ((ping * 2) + dt))
-                    return (cond1 and cond2) or nil
-                end)())) then
-                    shouldParry = true
-                end
-
-                if shouldParry then
-                    debounce = true
-                    local parryArgs = {0.5, State.ParryAttemptKey, 0.15, Camera.CFrame, Logic:PlayersScreenPoint(), {Mouse.X, Mouse.Y}, false}
-                    if SettingsData.Toggle["Curve-Ball"] then
-                        local t = Logic:Mouse2DNearestPlayer(Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2))
-                        parryArgs[4] = Logic:Angle(SettingsData.Dropdown["Curving-Mode"], t)
-                    end
-                    Utils:FireRemote(nil, RemoteSignals.ParryAttempt, unpack(parryArgs))
-
-                    realBall:SetParry(true, "Parry")
-                    task.delay(0.86, function() if realBall and realBall.Parried then realBall:SetParry(false, "Due") end end)
-                    debounce = false
+                elseif SettingsData.Dropdown["Targeting-Mode"] == "Nearest Player" then
+                    targetPlayer = Logic:NearestPlayer(Humanoids.LocalPlayer.RootPart.Position)
+                elseif SettingsData.Dropdown["Targeting-Mode"] == "Furthest Player" then
+                    targetPlayer = Logic:FurthestPlayer(Humanoids.LocalPlayer.RootPart.Position)
+                elseif SettingsData.Dropdown["Targeting-Mode"] == "Weakest Player" then
+                    targetPlayer = Logic:WeakestPlayer()
+                elseif SettingsData.Dropdown["Targeting-Mode"] == "Strongest Player" then
+                    targetPlayer = Logic:StrongestPlayer()
+                else
+                    targetPlayer = Logic:Mouse2DNearestPlayer(Mouse.Position)
                 end
             end
-        end))
-    end)
 
-    Tabs.Combat:AddToggle("AutoSpamParry", { Title = "Auto Spam Parry", Default = SettingsData.Toggle["Auto-Spam-Parry"] }):OnChanged(function()
-        SettingsData.Toggle["Auto-Spam-Parry"] = Options.AutoSpamParry.Value
-        if SignalWrapper["Auto-Spam-Parry"] then SignalWrapper["Auto-Spam-Parry"]:Disconnect() end
-        -- Re-bind Spam Logic
-        SignalWrapper["Auto-Spam-Parry"] = RunService.PostSimulation:Connect(TEMP_NO_VIRTUALIZE(function(step)
-             if not SettingsData.Toggle["Auto-Spam-Parry"] then SignalWrapper["Auto-Spam-Parry"]:Disconnect() return end
-             -- (Spam Logic Implementation reused from previous turn)
-             local realBall = State.RealBall
-             if not Config.Spam and Logic:Alive(LocalPlayer) and realBall and realBall.Target == LocalPlayer and (State.ForceSpam or (realBall.ZoomiesFluctuated)) then
-                 local function SpamLogic(dt)
-                     -- Simplified spam trigger
-                     State.Spamming = true
-                     Config.Spam = true
-                     task.spawn(function()
+            if targetPlayer then
+                local pos
+                local success, _ = pcall(function() return targetPlayer.Position end)
+                if not success then targetPlayer = Utils:GetHumanoidRootPart(targetPlayer) end
+                local screenPos = Camera:WorldToScreenPoint(targetPlayer.Position)
+                parryArgs[6] = { screenPos.X, screenPos.Y }
+            end
+
+            if not parryArgs[6] then parryArgs[6] = { Mouse.X, Mouse.Y } end
+            if SettingsData.Toggle["Curve-Ball"] then
+                parryArgs[4] = Logic:Angle(SettingsData.Dropdown["Curving-Mode"], targetPlayer)
+            else
+                parryArgs[4] = Camera.CFrame
+            end
+
+            Config.Parry = true
+            task.spawn(function()
+                local timer = Utils:Timer(0.8666666666666667)
+                repeat task.wait() until timer() or not Config.Parry
+                if Config.Parry then Config.Parry = false end
+            end)
+        end
+    end
+
+    if Humanoids.LocalPlayer and Humanoids.LocalPlayer.RootPart then
+        State.ParryCache = parryArgs
+        State.ParryCacheTimestamp = os.clock()
+        Utils:FireRemote(val, RemoteSignals.ParryAttempt, unpack(parryArgs))
+    end
+end))
+
+CombatAuto:addToggle("Auto Parry", SettingsData.Toggle["Auto-Parry"], function(bool)
+    SettingsData.Toggle["Auto-Parry"] = bool
+    if SignalWrapper["Auto-Parry"] then SignalWrapper["Auto-Parry"]:Disconnect() end
+    local debounce = false
+    SignalWrapper["Auto-Parry"] = RunService.PreRender:Connect(TEMP_NO_VIRTUALIZE(function(dt)
+        if not SettingsData.Toggle["Auto-Parry"] then SignalWrapper["Auto-Parry"]:Disconnect() return end
+        if debounce then return end
+        local ping
+        pcall(function() ping = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) end)
+        if not ping then ping = 0.05 end
+        local Humanoids = { LocalPlayer = Utils:GetHumanoid(LocalPlayer.Character) }
+        local realBall = State.RealBall
+        if Logic:Alive(LocalPlayer) and realBall and realBall.Object and realBall.Target == LocalPlayer and not realBall.Parried and realBall.Velocity.Magnitude >= 0 and #realBall.Animators <= 0 and Humanoids.LocalPlayer and LocalPlayer.Character.Parent == Workspace.Alive and ((realBall.ZoomiesFluctuated and ((function()
+            if realBall.ZoomiesDot >= 0 then
+                local dist = (Humanoids.LocalPlayer.RootPart.Position - realBall.Position).Magnitude
+                if dist <= math.clamp(realBall.Velocity.Magnitude, 17, 17) then return true end
+            end
+        end)())) or (realBall.ZoomiesFluctuated and realBall.ZoomiesDecreaseParryable and ((function()
+            local function check(offset)
+                local direction = (Humanoids.LocalPlayer.RootPart.Position - realBall.Position)
+                local adjusted = direction - (direction.Unit * offset)
+                local time = Utils:TimeToPosition(adjusted, realBall.ZoomiesVelocity)
+                local toward = Utils:TowardsPosition(realBall.Position, Humanoids.LocalPlayer.RootPart.Position, Humanoids.LocalPlayer.MoveDirection)
+                local range = SettingsData.Slider["Range"] + (toward > 0 and toward * 0.05 or toward < 0 and toward * -0.05 or 0) + (LocalPlayer.Character:FindFirstChild("Titan Blade") and 0.1 or 0)
+                return time <= (range + (ping + dt))
+            end
+            return check(0) or check(17)
+        end)()) and ((function()
+            local cond1 = realBall.Dot >= (SettingsData.Slider["Direct-Point"] - (ping + dt))
+            local cond2 = realBall.ZoomiesDot >= (1 - ((ping * 2) + dt))
+            return (cond1 and cond2) or nil
+        end)()))) then
+            debounce = true
+            -- Trigger Parry Logic
+            local parryArgs = {
+                0.5, State.ParryAttemptKey, 0.15, Camera.CFrame, Logic:PlayersScreenPoint(), {Mouse.X, Mouse.Y}, false
+            }
+            if SettingsData.Toggle["Curve-Ball"] then
+                local targetPlayer = Logic:Mouse2DNearestPlayer(Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)) 
+                parryArgs[4] = Logic:Angle(SettingsData.Dropdown["Curving-Mode"], targetPlayer)
+            end
+            Utils:FireRemote(nil, RemoteSignals.ParryAttempt, unpack(parryArgs))
+            
+            realBall:SetParry(true, "Parry")
+            task.spawn(function()
+                local timer = Utils:Timer(0.8666666666666667)
+                repeat task.wait() until timer() or not (realBall and realBall.Parried)
+                if realBall and realBall.Parried then realBall:SetParry(false, "Due") end
+            end)
+            debounce = false
+        end
+    end))
+end)
+
+CombatAuto:addToggle("Auto Spam Parry", SettingsData.Toggle["Auto-Spam-Parry"], function(bool)
+    SettingsData.Toggle["Auto-Spam-Parry"] = bool
+    if SignalWrapper["Auto-Spam-Parry"] then SignalWrapper["Auto-Spam-Parry"]:Disconnect() end
+    SignalWrapper["Auto-Spam-Parry"] = RunService.PostSimulation:Connect(TEMP_NO_VIRTUALIZE(function(step)
+        if not SettingsData.Toggle["Auto-Spam-Parry"] then SignalWrapper["Auto-Spam-Parry"]:Disconnect() return end
+        local ping
+        pcall(function() ping = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) end)
+        if not ping then ping = 0.05 end
+        local Humanoids = { LocalPlayer = Utils:GetHumanoid(LocalPlayer.Character) }
+        local realBall = State.RealBall
+        if not Config.Spam and Logic:Alive(LocalPlayer) and realBall and realBall.Object and realBall.Velocity.Magnitude > 0 and realBall.Target == LocalPlayer and #realBall.Animators <= 0 and Humanoids.LocalPlayer and LocalPlayer.Character.Parent == Workspace.Alive and (State.ForceSpam or (realBall.ZoomiesFluctuated and (Utils:TowardsPosition(Humanoids.LocalPlayer.RootPart.Position, realBall.Position, realBall.Velocity) >= 0)) or (realBall.ZoomiesFluctuated and ((function()
+            local dist = (Humanoids.LocalPlayer.RootPart.Position - realBall.Position).Magnitude
+            if dist <= math.clamp(realBall.Velocity.Magnitude, 17, 17) then return true end
+        end)()))) then
+            local connections = {}
+            local function CleanupConnections()
+                RunService:UnbindFromRenderStep("AutoSpamParry")
+                for _, c in pairs(connections) do c:Disconnect() end
+                table.clear(connections)
+            end
+
+            local function SpamLogic(dt)
+                local p
+                pcall(function() p = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) end)
+                if not p then p = 0.05 end
+                if (Logic:Alive(LocalPlayer) and SettingsData.Toggle["Auto-Parry"] and SettingsData.Toggle["Auto-Spam-Parry"] and ((State.LocalParryFrequency and State.LocalLastParried and State.LocalParryFrequency <= 0.225 + (p + dt) and os.clock() - State.LocalLastParried <= 0.325 + (p + dt)) or (State.EstimatedTimeArrival and State.LastEstimatedTimeArrival and State.LastEstimatedTimeArrivalTimestamp and (State.EstimatedTimeArrival <= 0.225 + (p + dt) and State.LastEstimatedTimeArrival <= 0.225 + (p + dt) and State.EstimatedTimeArrival - State.LastEstimatedTimeArrival < 0.225 + (p + dt)) and os.clock() - State.LastEstimatedTimeArrivalTimestamp <= 0.35))) then
+                    State.Spamming = true
+                    Config.Spam = true
+                    task.spawn(function()
                         for i = 1, SettingsData.Slider["Spam-Iteration"] do
-                            local parryArgs = {0.5, State.ParryAttemptKey, 0.15, Camera.CFrame, Logic:PlayersScreenPoint(), {Mouse.X, Mouse.Y}, false}
-                            Utils:FireRemote(nil, RemoteSignals.ParryAttempt, unpack(parryArgs))
-                            task.wait()
+                                local parryArgs = {0.5, State.ParryAttemptKey, 0.15, Camera.CFrame, Logic:PlayersScreenPoint(), {Mouse.X, Mouse.Y}, false}
+                                Utils:FireRemote(nil, RemoteSignals.ParryAttempt, unpack(parryArgs))
+                                task.wait()
                         end
-                     end)
-                 end
-                 -- Only trigger if close enough (logic simplified for UI swap)
-                 if (Utils:TowardsPosition(LocalPlayer.Character.HumanoidRootPart.Position, realBall.Position, realBall.Velocity) >= 0) then
-                     SpamLogic(0)
-                 end
-             end
-        end))
-    end)
-
-    Tabs.Combat:AddSlider("Range", { Title = "Parry Range", Default = 0.15, Min = 0, Max = 1, Rounding = 2, Callback = function(val) SettingsData.Slider["Range"] = val end })
-    Tabs.Combat:AddSlider("DirectPoint", { Title = "Direct Point", Default = -1.0, Min = -1, Max = 1, Rounding = 2, Callback = function(val) SettingsData.Slider["Direct-Point"] = val end })
-    Tabs.Combat:AddSlider("SpamIteration", { Title = "Spam Iteration", Default = 2, Min = 1, Max = 50, Rounding = 0, Callback = function(val) SettingsData.Slider["Spam-Iteration"] = val end })
-end
-
--- MACRO TAB
-do
-    Tabs.Macro:AddKeybind("BlockKeybind", {
-        Title = "Block Keybind",
-        Mode = "Hold",
-        Default = "V",
-        Callback = function(val) end -- Handled by logic
-    })
-end
-
--- SETTINGS TAB
-do
-    Tabs.Settings:AddToggle("AutoConfig", { Title = "Auto Config", Default = SettingsData.Toggle["Auto-Config"] }):OnChanged(function()
-        SettingsData.Toggle["Auto-Config"] = Options.AutoConfig.Value
-        if SignalWrapper["Auto-Config"] then SignalWrapper["Auto-Config"]:Disconnect() end
-        SignalWrapper["Auto-Config"] = RunService.PostSimulation:Connect(TEMP_NO_VIRTUALIZE(function()
-            if not SettingsData.Toggle["Auto-Config"] then SignalWrapper["Auto-Config"]:Disconnect() return end
-            local ping
-            pcall(function() ping = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) end)
-            if not ping then ping = 0.05 end
-            
-            if Options.Range then
-                local newRange = 0.35 + 0.05 * (ping / 0.05)
-                Options.Range:SetValue(newRange)
-                Options.DirectPoint:SetValue(0)
+                    end)
+                else
+                    State.Spamming = false
+                    Config.Spam = false
+                    CleanupConnections()
+                end
             end
-        end))
-    end)
+            SpamLogic(0)
+            RunService:BindToRenderStep("AutoSpamParry", 0, SpamLogic)
+            connections[#connections + 1] = RunService.PreAnimation:Connect(SpamLogic)
+            connections[#connections + 1] = RunService.PreRender:Connect(SpamLogic)
+            connections[#connections + 1] = RunService.PreSimulation:Connect(SpamLogic)
+            connections[#connections + 1] = RunService.PostSimulation:Connect(SpamLogic)
+            connections[#connections + 1] = RunService.Heartbeat:Connect(SpamLogic)
+        end
+    end))
+end)
 
-    Tabs.Settings:AddDropdown("TargetingMode", {
-        Title = "Targeting Mode",
-        Values = {"Nearest to Mouse", "Nearest to Screen Center", "Nearest Player", "Furthest Player", "Last Targeted Player", "Weakest Player", "Strongest Player"},
-        Default = "Nearest to Screen Center",
-        Callback = function(val) SettingsData.Dropdown["Targeting-Mode"] = val end
-    })
+CombatAuto:addToggle("Auto Counter", SettingsData.Toggle["Auto-Counter"], function(bool)
+    SettingsData.Toggle["Auto-Counter"] = bool 
+end)
 
-    Tabs.Settings:AddToggle("CurveBall", { Title = "Auto Curve Ball", Default = true, Callback = function(val) SettingsData.Toggle["Curve-Ball"] = val end })
-    
-    Tabs.Settings:AddDropdown("CurvingMode", {
-        Title = "Curving Mode",
-        Values = {"Adaptive", "Random", "Upward", "Downward", "Reverse", "Verse", "Backward", "Forward", "Default"},
-        Default = "Adaptive",
-        Callback = function(val) SettingsData.Dropdown["Curving-Mode"] = val end
-    })
-    
-    Tabs.Settings:AddToggle("BlockSpamParry", { Title = "Block Spam Parry", Default = true, Callback = function(val) SettingsData.Toggle["Block-Spam-Parry"] = val end })
-end
+CombatSettings:addSlider("Parry Range", SettingsData.Slider["Range"], 0, 1, function(val)
+    SettingsData.Slider["Range"] = val
+end)
 
-SaveManager:SetLibrary(Fluent)
-InterfaceManager:SetLibrary(Fluent)
-SaveManager:IgnoreThemeSettings()
-SaveManager:SetIgnoreIndexes({})
-InterfaceManager:BuildInterfaceSection(Tabs.Settings)
-SaveManager:BuildConfigSection(Tabs.Settings)
+CombatSettings:addSlider("Direct Point", SettingsData.Slider["Direct-Point"], -1, 1, function(val)
+    SettingsData.Slider["Direct-Point"] = val
+end)
 
-Window:SelectTab(1)
-Fluent:Notify({
-    Title = "Infinixity",
-    Content = "Script Loaded Successfully",
-    Duration = 5
-})
+CombatSettings:addSlider("Spam Iteration", SettingsData.Slider["Spam-Iteration"], 1, 50, function(val)
+    SettingsData.Slider["Spam-Iteration"] = val
+end)
+
+-- // MACRO PAGE //
+local MacroPage = Window:addPage("Macro", 5012544693)
+local MacroSection = MacroPage:addSection("Inputs")
+
+MacroSection:addKeybind("Block Keybind", Enum.KeyCode.V, function() 
+    -- Logic handled via InputBegan elsewhere, this just shows the bind
+end, function(key)
+    -- Update callback if needed
+end)
+
+-- // SETTINGS PAGE //
+local SettingsPage = Window:addPage("Settings", 5012544693)
+local SettingsSection = SettingsPage:addSection("Configuration")
+
+SettingsSection:addToggle("Auto Config", SettingsData.Toggle["Auto-Config"], function(bool)
+    SettingsData.Toggle["Auto-Config"] = bool
+    if SignalWrapper["Auto-Config"] then SignalWrapper["Auto-Config"]:Disconnect() end
+    SignalWrapper["Auto-Config"] = RunService.PostSimulation:Connect(TEMP_NO_VIRTUALIZE(function()
+        if not SettingsData.Toggle["Auto-Config"] then SignalWrapper["Auto-Config"]:Disconnect() return end
+        local ping
+        pcall(function() ping = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) end)
+        if not ping then ping = 0.05 end
+        local isDungeon = false
+        for _, v in pairs(Workspace.Map:GetChildren()) do
+            if v.Name:lower():match("^dungeon") then isDungeon = true break end
+        end
+        if isDungeon then
+            -- Venyx doesn't support setting slider values programmatically easily, so we just update the data
+            SettingsData.Slider["Range"] = 0.3
+            SettingsData.Slider["Direct-Point"] = -0.25
+        elseif SettingsData.Slider["Range"] then
+            SettingsData.Slider["Range"] = 0.35 + 0.05 * (ping / 0.05)
+            SettingsData.Slider["Direct-Point"] = 0
+        end
+    end))
+end)
+
+SettingsSection:addDropdown("Targeting Mode", {"Nearest to Mouse", "Nearest to Screen Center", "Nearest Player", "Furthest Player", "Last Targeted Player", "Weakest Player", "Strongest Player"}, function(val)
+    SettingsData.Dropdown["Targeting-Mode"] = val
+end)
+
+SettingsSection:addToggle("Aim Camera at Ball", SettingsData.Toggle["Aim-Camera"], function(val)
+    SettingsData.Toggle["Aim-Camera"] = val
+end)
+
+SettingsSection:addToggle("Block Spam Parry", SettingsData.Toggle["Block-Spam-Parry"], function(bool)
+    SettingsData.Toggle["Block-Spam-Parry"] = bool
+    if not State["Block-Spam-Parry"] then
+        local active = false
+        local conns = {}
+        local function BindBlock(button1, button2)
+            local g1 = button1:WaitForChild("UIGradient")
+            g1:GetPropertyChangedSignal("Offset"):Connect(TEMP_NO_VIRTUALIZE(function()
+                if g1.Offset.Y < 0.5 then
+                    Config.Parrying = true
+                    State.Parryable = LocalPlayer.Character and LocalPlayer.Character:GetAttribute("Parrying")
+                else
+                    Config.Parrying = false
+                    State.Parryable = LocalPlayer.Character and LocalPlayer.Character:GetAttribute("Parrying")
+                end
+            end))
+            conns[#conns + 1] = button1.InputBegan:Connect(TEMP_NO_VIRTUALIZE(function(input)
+                if SettingsData.Toggle["Block-Spam-Parry"] and active and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+                    local spamConns = {}
+                    local function SpamLoop()
+                        local function stop()
+                            RunService:UnbindFromRenderStep("AutoSpamParry")
+                            for _, c in pairs(spamConns) do c:Disconnect() end
+                            table.clear(spamConns)
+                        end
+                        if Logic:Alive(LocalPlayer) then
+                            State.Spamming = true
+                            task.spawn(function()
+                                for i = 1, SettingsData.Slider["Spam-Iteration"] do
+                                    local parryArgs = {0.5, State.ParryAttemptKey, 0.15, Camera.CFrame, Logic:PlayersScreenPoint(), {Mouse.X, Mouse.Y}, false}
+                                    Utils:FireRemote(nil, RemoteSignals.ParryAttempt, unpack(parryArgs))
+                                    task.wait()
+                                end
+                            end)
+                        else
+                            State.Spamming = false
+                            stop()
+                        end
+                    end
+                    SpamLoop()
+                end
+            end))
+            conns[#conns + 1] = button1.MouseButton1Down:Connect(function() if SettingsData.Dropdown["Block-Mode"] == "Hold" then active = true end end)
+            conns[#conns + 1] = button1.MouseButton1Up:Connect(function() if SettingsData.Dropdown["Block-Mode"] == "Hold" then active = false end end)
+        end
+        BindBlock(Logic:BlockButton(), Logic:AbilityButton())
+        PlayerGui.ChildAdded:Connect(function(c) if c.Name == "Hotbar" then BindBlock(c:WaitForChild("Block"), c:WaitForChild("Ability")) end end)
+        State["Block-Spam-Parry"] = true
+    end
+end)
+
+SettingsSection:addDropdown("Block Mode", {"Hold", "Toggle"}, function(val)
+    SettingsData.Dropdown["Block-Mode"] = val
+end)
+
+SettingsSection:addToggle("Auto Curve Ball", SettingsData.Toggle["Curve-Ball"], function(val)
+    SettingsData.Toggle["Curve-Ball"] = val
+end)
+
+SettingsSection:addDropdown("Curving Mode", {"Adaptive", "Random", "Upward", "Downward", "Reverse", "Verse", "Backward", "Forward", "Default"}, function(val)
+    SettingsData.Dropdown["Curving-Mode"] = val
+end)
+
+-- Select the first page
+Window:SelectPage(Window.pages[1], true)
