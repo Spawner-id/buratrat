@@ -4,7 +4,7 @@
     Logic: Preserved
 ]]
 
-local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/shlexware/Orion/main/source')))()
+local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/jensonhirst/Orion/main/source')))()
 local NotifyName = "Infinixity"
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
