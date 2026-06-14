@@ -13,6 +13,11 @@ local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
+-- Shared UI helpers (Create, MakeDraggable)
+local UIHelpers = loadstring(game:HttpGet("https://raw.githubusercontent.com/Spawner-id/buratrat/main/shared/ui_helpers.lua"))()
+local Create = UIHelpers.Create
+local MakeDraggable = UIHelpers.MakeDraggable
+
 --// LIBRARY CONFIGURATION //--
 local Library = {}
 
@@ -26,52 +31,6 @@ local THEME = {
 	DarkText = Color3.fromRGB(150, 150, 150),
 	Red = Color3.fromRGB(255, 50, 50)
 }
-
---// HELPER FUNCTIONS //--
-local function Create(class, props)
-	local inst = Instance.new(class)
-	for k, v in pairs(props) do inst[k] = v end
-	return inst
-end
-
-local function MakeDraggable(topbar, widget)
-	local dragging, dragInput, dragStart, startPos
-
-	local function Update(input)
-		local delta = input.Position - dragStart
-		local targetPos = UDim2.new(
-			startPos.X.Scale, startPos.X.Offset + delta.X, 
-			startPos.Y.Scale, startPos.Y.Offset + delta.Y
-		)
-		TweenService:Create(widget, TweenInfo.new(0.05), {Position = targetPos}):Play()
-	end
-
-	topbar.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
-			dragStart = input.Position
-			startPos = widget.Position
-			
-			input.Changed:Connect(function()
-				if input.UserInputState == Enum.UserInputState.End then
-					dragging = false
-				end
-			end)
-		end
-	end)
-
-	topbar.InputChanged:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-			dragInput = input
-		end
-	end)
-
-	UserInputService.InputChanged:Connect(function(input)
-		if input == dragInput and dragging then
-			Update(input)
-		end
-	end)
-end
 
 --// MAIN LIBRARY LOGIC //--
 function Library:CreateWindow(config)
