@@ -20,7 +20,22 @@ _G.ProjectStark_Loaded = true
 -- LOAD NEVERZEN UI LIBRARY
 -- ==========================================
 
-local Neverzen = loadstring(game:HttpGet("https://raw.githubusercontent.com/zxciaz/VenyxUI/main/Reuploaded"))()
+local Neverzen
+do
+    local ok, result = pcall(function()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/zxciaz/VenyxUI/main/Reuploaded"))()
+    end)
+    if not ok then
+        warn("[ProjectStark] Failed to load UI library: " .. tostring(result))
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Load Error",
+            Text = "Failed to load UI library. Script cannot continue.",
+            Duration = 10,
+        })
+        return
+    end
+    Neverzen = result
+end
 
 -- ==========================================
 -- SERVICES & INITIAL SETUP
@@ -395,8 +410,14 @@ function Match.perform_spam()
         task.wait(0.1)  -- Brief cooldown before allowing regular parry
         props.cooldown = false
         
-        print(string.format("[SPAM] %.2fs - %d clicks @ %.1f studs", 
-            tick() - startTime, clickCount, (myRoot.Position - Match.ball.ball_itself.Position).Magnitude))
+        if Settings.DebugMode then
+            local dist = 0
+            if myRoot and myRoot.Parent and Match.ball.ball_itself then
+                dist = (myRoot.Position - Match.ball.ball_itself.Position).Magnitude
+            end
+            print(string.format("[SPAM] %.2fs - %d clicks @ %.1f studs", 
+                tick() - startTime, clickCount, dist))
+        end
     end)
 end
 
@@ -475,6 +496,8 @@ function Match.is_curved()
 
     local props = Match.ball.properties
     local targetName = target.Name
+
+    if not target.PrimaryPart then return false end
 
     if target.PrimaryPart:FindFirstChild("MaxShield") and targetName ~= LocalPlayer.Name and props.distance < 50 then
         return false
@@ -614,11 +637,14 @@ RunService.PreSimulation:Connect(function()
     end
 
     if Match.target.current and Match.target.current.Name == LocalPlayer.Name then
-        props.rotation = Match.target.aim.PrimaryPart.Position
+        if Match.target.aim and Match.target.aim.PrimaryPart then
+            props.rotation = Match.target.aim.PrimaryPart.Position
+        end
         return
     end
 
     if not Match.target.current then return end
+    if not Match.target.current.PrimaryPart then return end
 
     local targetPos = Match.target.current.PrimaryPart.Position
     local targetVel = Match.target.current.PrimaryPart.AssemblyLinearVelocity
@@ -656,6 +682,11 @@ workspace.Balls.ChildAdded:Connect(function()
     Match.ball.ball_itself = Match.get_ball()
     Match.ball.client_ball_itself = Match.get_client_ball()
     
+    if not Match.ball.ball_itself then
+        warn("[ProjectStark] Ball added but get_ball() returned nil")
+        return
+    end
+
     Match.ball.ball_itself:GetAttributeChangedSignal("target"):Connect(function()
         local target = Match.ball.ball_itself:GetAttribute("target")
         if target == LocalPlayer.Name then
@@ -950,7 +981,17 @@ ExtrasSection:addButton("FPS Boost", function()
 end)
 
 ExtrasSection:addButton("Server Hop", function()
-    loadstring(game:HttpGet("https://pastebin.com/raw/nfYuXYqd"))()
+    local ok, err = pcall(function()
+        loadstring(game:HttpGet("https://pastebin.com/raw/nfYuXYqd"))()
+    end)
+    if not ok then
+        warn("[ProjectStark] Server hop failed: " .. tostring(err))
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Server Hop Failed",
+            Text = "Could not load server hop script: " .. tostring(err),
+            Duration = 5,
+        })
+    end
 end)
 
 ExtrasSection:addButton("Rejoin", function()
@@ -974,13 +1015,16 @@ end)
 
 task.spawn(function()
     while task.wait(0.5) do
-        pcall(function()
+        local ok, err = pcall(function()
             if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
                 if LocalPlayer.Character.Humanoid.WalkSpeed ~= Settings.PlayerSpeed then
                     LocalPlayer.Character.Humanoid.WalkSpeed = Settings.PlayerSpeed
                 end
             end
         end)
+        if not ok and Settings.DebugMode then
+            warn("[ProjectStark] Speed monitor error: " .. tostring(err))
+        end
     end
 end)
 

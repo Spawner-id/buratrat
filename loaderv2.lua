@@ -1,4 +1,19 @@
-local Library = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local Library
+do
+    local ok, result = pcall(function()
+        return loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+    end)
+    if not ok then
+        warn("[Infinixity] Failed to load Fluent UI library: " .. tostring(result))
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Infinixity",
+            Text = "Failed to load UI library. Script cannot continue.",
+            Duration = 10,
+        })
+        return
+    end
+    Library = result
+end
 local NotifyName = "Infinixity"
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -56,6 +71,16 @@ end
 function Utils:TimeToPosition(distanceVector, velocityVector)
     if velocityVector.Magnitude == 0 then return math.huge end
     return distanceVector.Magnitude / velocityVector.Magnitude
+end
+function Utils:SafeGetPing()
+    local ping
+    local ok, err = pcall(function()
+        ping = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000)
+    end)
+    if not ok then
+        warn("[Infinixity] Ping retrieval failed: " .. tostring(err))
+    end
+    return ping or 0.05
 end
 
 local Services = {
@@ -534,11 +559,7 @@ Logic.RealBall = TEMP_NO_VIRTUALIZE(function(self, specificBall)
         instance.Interrupted = false
 
         local function RenderLoop(dt)
-            local ping
-            pcall(function()
-                ping = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000)
-            end)
-            if not ping then ping = 0.05 end
+            local ping = Utils:SafeGetPing()
 
             local Humanoids = {
                 LocalPlayer = Utils:GetHumanoid(LocalPlayer.Character)
@@ -936,15 +957,21 @@ local SettingsData = {
 }
 
 if isfile(ConfigPath .. "/config.json") then
-    local loaded = HttpService:JSONDecode(readfile(ConfigPath .. "/config.json"))
-    if loaded.Info and loaded.Info.Version and loaded.Info.Version == SettingsData.Info.Version then
-        for k, v in pairs(loaded) do
-            for key, val in pairs(v) do
-                if type(SettingsData[k]) == "table" then
-                    SettingsData[k][key] = val
+    local ok, loaded = pcall(function()
+        return HttpService:JSONDecode(readfile(ConfigPath .. "/config.json"))
+    end)
+    if ok and loaded then
+        if loaded.Info and loaded.Info.Version and loaded.Info.Version == SettingsData.Info.Version then
+            for k, v in pairs(loaded) do
+                for key, val in pairs(v) do
+                    if type(SettingsData[k]) == "table" then
+                        SettingsData[k][key] = val
+                    end
                 end
             end
         end
+    else
+        warn("[Infinixity] Failed to load config: " .. tostring(loaded))
     end
 end
 
@@ -1104,7 +1131,14 @@ for _, c in pairs(Workspace.Alive:GetChildren()) do SetupAlive(c) end
 Workspace.Alive.ChildAdded:Connect(SetupAlive)
 Workspace.Alive.ChildRemoved:Connect(RemoveAlive)
 
-loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+do
+    local ok, err = pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+    end)
+    if not ok then
+        warn("[Infinixity] Failed to load Infinite Yield: " .. tostring(err))
+    end
+end
 
 local Window = Library:CreateWindow({
     Name = "Infinixity",
@@ -1158,11 +1192,7 @@ do
             Name = "Parry",
             Body = "",
             Function = TEMP_NO_VIRTUALIZE(function(val)
-                local ping
-                pcall(function()
-                    ping = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000)
-                end)
-                if not ping then ping = 0.05 end
+                local ping = Utils:SafeGetPing()
 
                 local Humanoids = {
                     LocalPlayer = Utils:GetHumanoid(LocalPlayer.Character)
@@ -1290,11 +1320,7 @@ do
                         return
                     end
                     if debounce then return end
-                    local ping
-                    pcall(function()
-                        ping = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000)
-                    end)
-                    if not ping then ping = 0.05 end
+                    local ping = Utils:SafeGetPing()
                     local Humanoids = {
                         LocalPlayer = Utils:GetHumanoid(LocalPlayer.Character)
                     }
@@ -1356,11 +1382,7 @@ do
                         SignalWrapper["Auto-Spam-Parry"]:Disconnect()
                         return
                     end
-                    local ping
-                    pcall(function()
-                        ping = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000)
-                    end)
-                    if not ping then ping = 0.05 end
+                    local ping = Utils:SafeGetPing()
                     local Humanoids = {
                         LocalPlayer = Utils:GetHumanoid(LocalPlayer.Character)
                     }
@@ -1381,11 +1403,7 @@ do
                         end
 
                         local function SpamLogic(dt)
-                            local p
-                            pcall(function()
-                                p = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000)
-                            end)
-                            if not p then p = 0.05 end
+                            local p = Utils:SafeGetPing()
                             if (Logic:Alive(LocalPlayer) and SettingsData.Toggle["Auto-Parry"] and SettingsData.Toggle["Auto-Spam-Parry"] and ((State.LocalParryFrequency and State.LocalLastParried and State.LocalParryFrequency <= 0.225 + (p + dt) and os.clock() - State.LocalLastParried <= 0.325 + (p + dt)) or (State.EstimatedTimeArrival and State.LastEstimatedTimeArrival and State.LastEstimatedTimeArrivalTimestamp and (State.EstimatedTimeArrival <= 0.225 + (p + dt) and State.LastEstimatedTimeArrival <= 0.225 + (p + dt) and State.EstimatedTimeArrival - State.LastEstimatedTimeArrival < 0.225 + (p + dt)) and os.clock() - State.LastEstimatedTimeArrivalTimestamp <= 0.35))) then
                                 if not Config.Spam then
                                     if (State.EstimatedTimeArrival and State.LastEstimatedTimeArrival and State.LastEstimatedTimeArrivalTimestamp) then
@@ -1537,11 +1555,7 @@ do
                         SignalWrapper["Auto-Config"]:Disconnect()
                         return
                     end
-                    local ping
-                    pcall(function()
-                        ping = (LocalPlayer:GetNetworkPing() * 2) or (game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000)
-                    end)
-                    if not ping then ping = 0.05 end
+                    local ping = Utils:SafeGetPing()
                     local isDungeon = false
                     for _, v in pairs(Workspace.Map:GetChildren()) do
                         if v.Name:lower():match("^dungeon") then
