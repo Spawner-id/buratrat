@@ -4,8 +4,34 @@
     Logic: Preserved
 ]]
 
+-- // SAFE REMOTE LOADER (Whitelist + Error Handling) //
+local TRUSTED_SOURCES = {
+    ["https://raw.githubusercontent.com/jensonhirst/Orion/main/source"] = true,
+    ["https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"] = true,
+}
+
+local function safeLoadRemote(url)
+    if not TRUSTED_SOURCES[url] then
+        warn("[SECURITY] Blocked untrusted remote load: " .. tostring(url))
+        return nil
+    end
+    local success, result = pcall(function()
+        return loadstring(game:HttpGet(url))
+    end)
+    if not success or not result then
+        warn("[SECURITY] Failed to load remote script: " .. tostring(url) .. " Error: " .. tostring(result))
+        return nil
+    end
+    local execSuccess, execResult = pcall(result)
+    if not execSuccess then
+        warn("[SECURITY] Remote script execution failed: " .. tostring(url) .. " Error: " .. tostring(execResult))
+        return nil
+    end
+    return execResult
+end
+
 -- CHANGELOG: Switched to working Orion mirror to fix HTTP 404
-local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/jensonhirst/Orion/main/source')))()
+local OrionLib = safeLoadRemote("https://raw.githubusercontent.com/jensonhirst/Orion/main/source")
 local NotifyName = "Infinixity"
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -923,7 +949,7 @@ for _, c in pairs(Workspace.Alive:GetChildren()) do SetupAlive(c) end
 Workspace.Alive.ChildAdded:Connect(SetupAlive)
 Workspace.Alive.ChildRemoved:Connect(RemoveAlive)
 
-loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+safeLoadRemote("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source")
 
 -- // UI CONSTRUCTION (ORION) //
 local Window = OrionLib:MakeWindow({Name = "Infinixity | Blade Ball", HidePremium = false, SaveConfig = true, ConfigFolder = "Infinixity"})
