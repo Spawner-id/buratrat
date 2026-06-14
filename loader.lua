@@ -17,10 +17,39 @@ _G.ProjectStark_Loaded = true
 -- ==========================================
 
 -- ==========================================
+-- SAFE REMOTE LOADER (Whitelist + Error Handling)
+-- ==========================================
+
+local TRUSTED_SOURCES = {
+    ["https://raw.githubusercontent.com/zxciaz/VenyxUI/main/Reuploaded"] = true,
+    ["https://pastebin.com/raw/nfYuXYqd"] = true,
+}
+
+local function safeLoadRemote(url)
+    if not TRUSTED_SOURCES[url] then
+        warn("[SECURITY] Blocked untrusted remote load: " .. tostring(url))
+        return nil
+    end
+    local success, result = pcall(function()
+        return loadstring(game:HttpGet(url))
+    end)
+    if not success or not result then
+        warn("[SECURITY] Failed to load remote script: " .. tostring(url) .. " Error: " .. tostring(result))
+        return nil
+    end
+    local execSuccess, execResult = pcall(result)
+    if not execSuccess then
+        warn("[SECURITY] Remote script execution failed: " .. tostring(url) .. " Error: " .. tostring(execResult))
+        return nil
+    end
+    return execResult
+end
+
+-- ==========================================
 -- LOAD NEVERZEN UI LIBRARY
 -- ==========================================
 
-local Neverzen = loadstring(game:HttpGet("https://raw.githubusercontent.com/zxciaz/VenyxUI/main/Reuploaded"))()
+local Neverzen = safeLoadRemote("https://raw.githubusercontent.com/zxciaz/VenyxUI/main/Reuploaded")
 
 -- ==========================================
 -- SERVICES & INITIAL SETUP
@@ -950,7 +979,7 @@ ExtrasSection:addButton("FPS Boost", function()
 end)
 
 ExtrasSection:addButton("Server Hop", function()
-    loadstring(game:HttpGet("https://pastebin.com/raw/nfYuXYqd"))()
+    safeLoadRemote("https://pastebin.com/raw/nfYuXYqd")
 end)
 
 ExtrasSection:addButton("Rejoin", function()
